@@ -1,23 +1,34 @@
 module ListDir
-    ( someFunc
-    ) where
+  ( someFunc,
+  )
+where
 
+import Control.Monad
+import System.Directory.OsPath
 import System.Directory.OsPath.Streaming
 import System.OsPath
 
 listDir :: String -> IO ()
-listDir dirStr = do
-  p <- encodeUtf dirStr
-  ds <- openDirStream p
-  go ds
-    where
-      go ds' = do
-        ioEntry <- readDirStream ds'
-        case ioEntry of
-          Nothing -> return ()
-          Just entry -> do
-            putStrLn $ show entry
-            go ds'
+listDir pathStr = do
+  path <- encodeUtf pathStr
+  listDir' path
+
+listDir' :: OsPath -> IO ()
+listDir' basePath = do
+  dirStream <- openDirStream basePath
+  go dirStream
+  where
+    go dirStream' = do
+      maybeDirEntry <- readDirStream dirStream'
+      case maybeDirEntry of
+        Nothing -> return ()
+        Just dirEntry -> do
+          let path = basePath </> dirEntry
+          pathStr <- decodeUtf path
+          putStrLn pathStr
+          isDir <- doesDirectoryExist path
+          when isDir $ listDir' path
+          go dirStream'
 
 someFunc :: IO ()
 someFunc = listDir "."

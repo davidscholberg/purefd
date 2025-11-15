@@ -28,8 +28,9 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
-  - filepath
+  - directory
   - directory-ospath-streaming
+  - filepath
 
 executables:
   fh-exe:
