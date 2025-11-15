@@ -17,6 +17,7 @@ listDir' :: OsPath -> IO ()
 listDir' basePath = do
   dirStream <- openDirStream basePath
   go dirStream
+  closeDirStream dirStream
   where
     go dirStream' = do
       maybeDirEntry <- readDirStream dirStream'
