@@ -31,6 +31,7 @@ library:
   - directory
   - directory-ospath-streaming
   - filepath
+  - regex-tdfa
 
 executables:
   fh-exe:
@@ -41,6 +42,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - directory
     - fh
 
 tests:

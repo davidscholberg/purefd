@@ -1,5 +1,6 @@
 module ListDir
-  ( someFunc,
+  ( listDir,
+    listDir',
   )
 where
 
@@ -7,14 +8,15 @@ import Control.Monad
 import System.Directory.OsPath
 import System.Directory.OsPath.Streaming
 import System.OsPath
+import Text.Regex.TDFA
 
-listDir :: String -> IO ()
-listDir pathStr = do
+listDir :: Maybe String -> String -> IO ()
+listDir maybeRegex pathStr = do
   path <- encodeUtf pathStr
-  listDir' path
+  listDir' maybeRegex path
 
-listDir' :: OsPath -> IO ()
-listDir' basePath = do
+listDir' :: Maybe String -> OsPath -> IO ()
+listDir' maybeRegex basePath = do
   dirStream <- openDirStream basePath
   go dirStream
   closeDirStream dirStream
@@ -22,14 +24,15 @@ listDir' basePath = do
     go dirStream' = do
       maybeDirEntry <- readDirStream dirStream'
       case maybeDirEntry of
-        Nothing -> return ()
+        Nothing -> pure ()
         Just dirEntry -> do
           let path = basePath </> dirEntry
           pathStr <- decodeUtf path
-          putStrLn pathStr
+          when
+            (maybe True (pathStr =~) maybeRegex)
+            (putStrLn pathStr)
           isDir <- doesDirectoryExist path
-          when isDir $ listDir' path
+          when
+            isDir
+            (listDir' maybeRegex path)
           go dirStream'
-
-someFunc :: IO ()
-someFunc = listDir "."
