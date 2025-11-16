@@ -27,7 +27,9 @@ ghc-options:
 
 library:
   source-dirs: src
+  include-dirs: c
   dependencies:
+  - bytestring
   - directory
   - directory-ospath-streaming
   - filepath

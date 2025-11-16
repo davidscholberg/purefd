@@ -24,6 +24,7 @@ source-repository head
 
 library
   exposed-modules:
+      DirStream
       ListDir
   other-modules:
       Paths_fh
@@ -32,8 +33,11 @@ library
   hs-source-dirs:
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  include-dirs:
+      c
   build-depends:
       base >=4.7 && <5
+    , bytestring
     , directory
     , directory-ospath-streaming
     , filepath
