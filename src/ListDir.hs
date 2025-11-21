@@ -7,7 +7,8 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import DirStream
-import Foreign.Ptr
+import Foreign.C.String
+import Stream
 import Text.Regex.TDFA
 import Text.Regex.TDFA.ByteString
 
@@ -28,24 +29,20 @@ listDir maybeRegexStr pathStr = do
   maybeRegex <- maybe (pure Nothing) compileRegex maybeRegexStr
   BS.useAsCString
     path
-    ( \pathCStr ->
-        withDirStream pathCStr (processDirent maybeRegex path)
-    )
+    (mapStream_ (processDirEntry maybeRegex path) . makeDirStream)
 
-processDirent :: Maybe Regex -> BS.ByteString -> Ptr CDir -> IO ()
-processDirent maybeRegex basePath dirStream = do
-  maybeDirEntry <- readDirent dirStream
-  case maybeDirEntry of
-    Nothing -> pure ()
-    Just dirEntryCStr -> do
-      dirEntry <- BS.packCString dirEntryCStr
-      let path = basePath <> BS.singleton 47 <> dirEntry
-      when
-        (maybe True (`matchTest` dirEntry) maybeRegex)
-        (BS.putStr $ path <> BS.singleton 10)
-      BS.useAsCString
-        path
-        ( \pathCStr ->
-            withDirStream pathCStr (processDirent maybeRegex path)
-        )
-      processDirent maybeRegex basePath dirStream
+processDirEntry :: Maybe Regex -> BS.ByteString -> CString -> IO ()
+processDirEntry maybeRegex basePath dirEntryCStr = do
+  dirEntry <- BS.packCString dirEntryCStr
+  let path = basePath <> BS.singleton 47 <> dirEntry
+  when
+    (maybe True (`matchTest` dirEntry) maybeRegex)
+    (BS.putStr $ path <> BS.singleton 10)
+  BS.useAsCString
+    path
+    ( \pathCStr -> do
+        pathIsDir <- isDir pathCStr
+        when
+          pathIsDir
+          (mapStream_ (processDirEntry maybeRegex path) $ makeDirStream pathCStr)
+    )

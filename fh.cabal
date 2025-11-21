@@ -26,6 +26,7 @@ library
   exposed-modules:
       DirStream
       ListDir
+      Stream
   other-modules:
       Paths_fh
   autogen-modules:

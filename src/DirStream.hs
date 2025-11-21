@@ -1,20 +1,24 @@
 {-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE TupleSections #-}
 
 module DirStream
   ( CDir,
     closeDir,
     openDir,
     isDir,
+    makeDirStream,
     readDirent,
     withDirStream,
   )
 where
 
+import Control.Exception
 import Control.Monad
 import Foreign.C.Error
 import Foreign.C.String
 import Foreign.C.Types
 import Foreign.Ptr
+import Stream
 
 data {-# CTYPE "DIR" #-} CDir
 
@@ -64,6 +68,16 @@ isDir path = do
     (retVal == -1)
     (fail "dir check failed")
   pure $ retVal /= 0
+
+makeDirStream :: CString -> Stream CString
+makeDirStream dirStr =
+  Stream
+    { open = openDir dirStr,
+      next = \dirPtr -> do
+        dirent <- readDirent dirPtr `onException` closeDir dirPtr
+        pure $ (,dirPtr) <$> dirent,
+      close = closeDir
+    }
 
 withDirStream :: CString -> (Ptr CDir -> IO ()) -> IO ()
 withDirStream path f = do
