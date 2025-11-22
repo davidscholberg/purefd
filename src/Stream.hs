@@ -3,6 +3,7 @@
 
 module Stream
   ( Stream (..),
+    concatIterateIO,
     foldStream,
     foldStream_,
     mapStream_,
@@ -67,6 +68,53 @@ instance Functor Stream where
         close = close'
       }
 
+-- Similar to a Stream except that it carries its own state with it. Useful for combining multiple
+-- streams into one on the fly.
+-- All implementations of nextF must ensure that the stream resource is closed upon any exception
+-- that occurs within the body.
+data StreamFrame a = forall s. StreamFrame
+  { stateF :: s,
+    nextF :: s -> IO (Maybe (a, s)),
+    closeF :: s -> IO ()
+  }
+
+-- StreamFrames can be concatted together.
+instance Semigroup (StreamFrame a) where
+  StreamFrame seedState1 next1 close1 <> StreamFrame seedState2 next2 close2 =
+    StreamFrame
+      { stateF = Left seedState1,
+        nextF = \case
+          Left state1 -> do
+            result1 <- next1 state1 `onException` close2 seedState2
+            case result1 of
+              Just (v, state1') ->
+                pure $ Just (v, Left state1')
+              Nothing -> do
+                result2 <- next2 seedState2 `onException` close1 state1
+                case result2 of
+                  Just (v, state2) -> do
+                    close1 state1 `onException` close2 state2
+                    pure $ Just (v, Right state2)
+                  Nothing -> pure Nothing
+          Right state2 -> do
+            result2 <- next2 state2
+            pure $ second Right <$> result2,
+        closeF = \case
+          Left state1 -> do
+            close1 state1 `finally` close2 seedState2
+          Right state2 -> do
+            close2 state2
+      }
+
+-- StreamFrames can be concattable and empty.
+instance Monoid (StreamFrame a) where
+  mempty =
+    StreamFrame
+      { stateF = (),
+        nextF = \_ -> pure Nothing,
+        closeF = \_ -> pure ()
+      }
+
 -- Left associative strict fold over a stream.
 -- This function will close the stream resource upon any exception from the supplied f.
 foldStream :: (b -> a -> IO b) -> b -> Stream a -> IO b
@@ -94,3 +142,27 @@ foldStream_ f identity stream = do
 -- This function will close the stream resource upon any exception from the supplied f.
 mapStream_ :: (a -> IO b) -> Stream a -> IO ()
 mapStream_ f = foldStream_ (const f) undefined
+
+-- Create stream that prepends new streams that are found by applying the supplied f to one of the
+-- stream values. Useful for recursive depth-first traversal of (for example) a directory tree.
+-- Stole this function idea straight from streamly lmaooooooooo
+concatIterateIO :: (a -> IO (Maybe (Stream a))) -> Stream a -> Stream a
+concatIterateIO f (Stream seedOpen seedNext seedClose) =
+  Stream {
+    open = do
+      seedState <- seedOpen
+      pure $ StreamFrame seedState seedNext seedClose,
+    next = \(StreamFrame currentState currentNext currentClose) -> do
+      maybeResult <- currentNext currentState
+      case maybeResult of
+        Just (v, currentState') -> do
+          maybeStream <- f v `onException` currentClose currentState'
+          case maybeStream of
+            Just (Stream newOpen newNext newClose) -> do
+              newState <- newOpen `onException` currentClose currentState'
+              pure $ Just (v, StreamFrame newState newNext newClose <> StreamFrame currentState' currentNext currentClose)
+            Nothing -> pure $ Just (v, StreamFrame currentState' currentNext currentClose)
+        Nothing -> pure Nothing,
+    close = \(StreamFrame currentState _ currentClose) -> do
+      currentClose currentState
+  }
