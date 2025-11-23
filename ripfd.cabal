@@ -25,6 +25,7 @@ source-repository head
 library
   exposed-modules:
       DirStream
+      FSPath
       ListDir
       Stream
   other-modules:

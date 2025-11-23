@@ -7,6 +7,7 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import DirStream
+import qualified FSPath as F
 import Stream
 import Text.Regex.TDFA
 import Text.Regex.TDFA.ByteString
@@ -21,14 +22,14 @@ compileRegex regexStr = do
 listDir :: Maybe String -> String -> IO ()
 listDir maybeRegexStr pathStr = do
   maybeRegex <- maybe (pure Nothing) compileRegex maybeRegexStr
-  let path = BSC.pack pathStr
+  let path = F.pack pathStr
   maybeStream <- makeDirStream path
   case maybeStream of
     Just dirStream -> mapStream_ (processDirEntry maybeRegex) $ concatIterateIO (\(p, _) -> makeDirStream p) dirStream
     Nothing -> fail $ "path is not a directory: " ++ pathStr
 
-processDirEntry :: Maybe Regex -> (BS.ByteString, BS.ByteString) -> IO ()
+processDirEntry :: Maybe Regex -> (F.FSPath, F.FSPath) -> IO ()
 processDirEntry maybeRegex (path, dirEntry) =
   when
-    (maybe True (`matchTest` dirEntry) maybeRegex)
-    (BS.putStr $ path <> BS.singleton 10)
+    (maybe True (`matchTest` F.toByteString dirEntry) maybeRegex)
+    (BS.putStr $ flip BS.snoc 10 $ F.toByteString path)
