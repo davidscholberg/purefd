@@ -6,7 +6,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static inline int fh_is_dir(const char* path) {
+static inline int ripfd_is_dir(const char* path) {
     struct stat statbuf;
 
     int ret = stat(path, &statbuf);
@@ -20,7 +20,7 @@ static inline int fh_is_dir(const char* path) {
     return (statbuf.st_mode & S_IFMT) == S_IFDIR;
 }
 
-static inline char* fh_get_dir_entry(DIR* dirstream) {
+static inline char* ripfd_get_dir_entry(DIR* dirstream) {
     while (1) {
         errno = 0;
         struct dirent* entry = readdir(dirstream);

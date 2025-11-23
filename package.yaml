@@ -1,6 +1,6 @@
-name:                fh
+name:                ripfd
 version:             0.1.0.0
-github:              "davidscholberg/fh"
+github:              "davidscholberg/ripfd"
 license:             BSD-3-Clause
 author:              "David Scholberg"
 maintainer:          "recombinant.vector@gmail.com"
@@ -9,7 +9,7 @@ copyright:           "2025 David Scholberg"
 extra-source-files:
 - README.md
 
-description:         Please see the README on GitHub at <https://github.com/davidscholberg/fh#readme>
+description:         Please see the README on GitHub at <https://github.com/davidscholberg/ripfd#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -36,7 +36,7 @@ library:
   - regex-tdfa
 
 executables:
-  fh-exe:
+  ripfd-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -45,10 +45,10 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - directory
-    - fh
+    - ripfd
 
 tests:
-  fh-test:
+  ripfd-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -56,4 +56,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - fh
+    - ripfd

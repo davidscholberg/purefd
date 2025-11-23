@@ -28,9 +28,9 @@ foreign import capi unsafe "dirent.h opendir" cOpendir :: CString -> IO (Ptr CDi
 
 foreign import capi unsafe "dirent.h closedir" cClosedir :: Ptr CDir -> IO CInt
 
-foreign import capi unsafe "posix_helper.h fh_get_dir_entry" cFhGetDirEntry :: Ptr CDir -> IO CString
+foreign import capi unsafe "posix_helper.h ripfd_get_dir_entry" cRipfdGetDirEntry :: Ptr CDir -> IO CString
 
-foreign import capi unsafe "posix_helper.h fh_is_dir" cFhIsDir :: CString -> IO CInt
+foreign import capi unsafe "posix_helper.h ripfd_is_dir" cRipfdIsDir :: CString -> IO CInt
 
 openDir :: CString -> IO (Ptr CDir)
 openDir pathCStr = do
@@ -44,7 +44,7 @@ openDir pathCStr = do
 
 readDirent :: Ptr CDir -> IO (Maybe CString)
 readDirent dirPtr = do
-  entry <- cFhGetDirEntry dirPtr
+  entry <- cRipfdGetDirEntry dirPtr
   errno <- getErrno
   if entry == nullPtr
     then
@@ -65,7 +65,7 @@ closeDir dirPtr = do
 
 isDir :: CString -> IO Bool
 isDir path = do
-  retVal <- cFhIsDir path
+  retVal <- cRipfdIsDir path
   when
     (retVal == -1)
     (fail "dir check failed")
