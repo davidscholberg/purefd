@@ -12,6 +12,8 @@ where
 
 import Control.Exception
 import Data.Bifunctor
+import Data.Function
+import qualified Sequential as S
 
 -- Data type representing a stream of data. The open function acquires the stream resource, the
 -- next function returns the next object from the stream as well as the (potentially) updated stream
@@ -25,6 +27,10 @@ data Stream a = forall s. Stream
   }
 
 -- Streams can be concatted together.
+-- TODO: This is not a performant way to concat together many streams since calls to next on the
+-- concatted stream may have to traverse a deep call stack just to retrieve the next value. It's
+-- much more efficient to concat streams by using a sequence of streams or stream frames as the
+-- state object of the concatted stream.
 instance Semigroup (Stream a) where
   Stream open1 next1 close1 <> Stream open2 next2 close2 =
     Stream
@@ -79,6 +85,9 @@ data StreamFrame a = forall s. StreamFrame
   }
 
 -- StreamFrames can be concatted together.
+-- TODO: This has the same performance problems as the Semigroup instance for Streams. The
+-- concatIterateIO function has a much more performant example of concatting stream frames (by
+-- maintaining a stack of stream frames).
 instance Semigroup (StreamFrame a) where
   StreamFrame seedState1 next1 close1 <> StreamFrame seedState2 next2 close2 =
     StreamFrame
@@ -143,26 +152,48 @@ foldStream_ f identity stream = do
 mapStream_ :: (a -> IO b) -> Stream a -> IO ()
 mapStream_ f = foldStream_ (const f) undefined
 
+closeStateSequence :: S.Sequential (StreamFrame a) -> IO ()
+closeStateSequence stateSequence = do
+  case S.peek stateSequence of
+    Just (StreamFrame currentState _ currentClose) ->
+      currentClose currentState `finally` closeStateSequence (S.pop stateSequence)
+    Nothing -> pure ()
+
 -- Create stream that prepends new streams that are found by applying the supplied f to one of the
 -- stream values. Useful for recursive depth-first traversal of (for example) a directory tree.
 -- Stole this function idea straight from streamly lmaooooooooo
 concatIterateIO :: (a -> IO (Maybe (Stream a))) -> Stream a -> Stream a
 concatIterateIO f (Stream seedOpen seedNext seedClose) =
-  Stream {
-    open = do
-      seedState <- seedOpen
-      pure $ StreamFrame seedState seedNext seedClose,
-    next = \(StreamFrame currentState currentNext currentClose) -> do
-      maybeResult <- currentNext currentState
-      case maybeResult of
-        Just (v, currentState') -> do
-          maybeStream <- f v `onException` currentClose currentState'
-          case maybeStream of
-            Just (Stream newOpen newNext newClose) -> do
-              newState <- newOpen `onException` currentClose currentState'
-              pure $ Just (v, StreamFrame newState newNext newClose <> StreamFrame currentState' currentNext currentClose)
-            Nothing -> pure $ Just (v, StreamFrame currentState' currentNext currentClose)
-        Nothing -> pure Nothing,
-    close = \(StreamFrame currentState _ currentClose) -> do
-      currentClose currentState
-  }
+  Stream
+    { open = do
+        seedState <- seedOpen
+        let stateStack = S.makeStack :: S.Sequential (StreamFrame a)
+        pure $ S.push (StreamFrame seedState seedNext seedClose) stateStack,
+      next = fix $ \self stateStack -> do
+        case S.peek stateStack of
+          Just (StreamFrame currentState currentNext currentClose) -> do
+            maybeResult <- currentNext currentState
+            case maybeResult of
+              Just (v, currentState') -> do
+                maybeStream <- f v `onException` (currentClose currentState' `finally` closeStateSequence (S.pop stateStack))
+                case maybeStream of
+                  Just (Stream newOpen newNext newClose) -> do
+                    newState <- newOpen `onException` (currentClose currentState' `finally` closeStateSequence (S.pop stateStack))
+                    pure $ Just (v, S.push (StreamFrame newState newNext newClose) $ S.replaceFirst (StreamFrame currentState' currentNext currentClose) stateStack)
+                  Nothing -> pure $ Just (v, S.replaceFirst (StreamFrame currentState' currentNext currentClose) stateStack)
+              Nothing -> do
+                -- Normally we wouldn't catch and handle exceptions from next calls (since they're
+                -- supposed to do their own cleanup), but in this case we can't clean up the current
+                -- stream until we verify that the recursive next call below does not return Nothing.
+                -- As a result, we catch any exception and close the stream that was left dangling in
+                -- the current recursive call frame.
+                maybeResult' <- self (S.pop stateStack) `onException` currentClose currentState
+                case maybeResult' of
+                  Just result@(_, stateStack') -> do
+                    currentClose currentState `onException` closeStateSequence stateStack'
+                    pure $ Just result
+                  Nothing -> pure Nothing
+          Nothing -> pure Nothing,
+      close = \stateStack -> do
+        closeStateSequence stateStack
+    }

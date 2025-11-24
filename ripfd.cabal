@@ -27,6 +27,7 @@ library
       DirStream
       FSPath
       ListDir
+      Sequential
       Stream
   other-modules:
       Paths_ripfd
