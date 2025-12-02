@@ -23,13 +23,24 @@ listDir :: Maybe String -> String -> IO ()
 listDir maybeRegexStr pathStr = do
   maybeRegex <- maybe (pure Nothing) compileRegex maybeRegexStr
   let path = F.pack pathStr
-  maybeStream <- makeDirStream path
-  case maybeStream of
-    Just dirStream -> mapStream_ (processDirEntry maybeRegex) $ concatIterateIO (\(p, _) -> makeDirStream p) dirStream
-    Nothing -> fail $ "path is not a directory: " ++ pathStr
+  pathIsDir <- F.useAsCString path isDir
+  if pathIsDir
+    then
+      mapStream_ (processDirEntry maybeRegex)
+        $ concatIterateIO
+          ( \(p, _, d) ->
+              if d
+                then
+                  Just $ makeDirStream p
+                else
+                  Nothing
+          )
+        $ makeDirStream path
+    else
+      fail $ "path is not a directory: " ++ pathStr
 
-processDirEntry :: Maybe Regex -> (F.FSPath, F.FSPath) -> IO ()
-processDirEntry maybeRegex (path, dirEntry) =
+processDirEntry :: Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> IO ()
+processDirEntry maybeRegex (path, dirEntry, _) =
   when
     (maybe True (`matchTest` F.toByteString dirEntry) maybeRegex)
     (BS.putStr $ flip BS.snoc 10 $ F.toByteString path)

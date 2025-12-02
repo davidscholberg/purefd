@@ -16,17 +16,21 @@ import Control.Monad
 import Foreign.C.Error
 import Foreign.C.String
 import Foreign.C.Types
+import Foreign.Marshal.Alloc
 import Foreign.Ptr
+import Foreign.Storable
 import qualified FSPath as F
 import Stream
 
 data {-# CTYPE "DIR" #-} CDir
 
+data DirEntryType = DirEntryDir | DirEntryNotDir | DirEntryUnknown
+
 foreign import capi unsafe "dirent.h opendir" cOpendir :: CString -> IO (Ptr CDir)
 
 foreign import capi unsafe "dirent.h closedir" cClosedir :: Ptr CDir -> IO CInt
 
-foreign import capi unsafe "posix_helper.h ripfd_get_dir_entry" cRipfdGetDirEntry :: Ptr CDir -> IO CString
+foreign import capi unsafe "posix_helper.h ripfd_get_dir_entry" cRipfdGetDirEntry :: Ptr CDir -> Ptr CInt -> IO CString
 
 foreign import capi unsafe "posix_helper.h ripfd_is_dir" cRipfdIsDir :: CString -> IO CInt
 
@@ -40,19 +44,31 @@ openDir pathCStr = do
     else
       pure dirPtr
 
-readDirent :: Ptr CDir -> IO (Maybe CString)
-readDirent dirPtr = do
-  entry <- cRipfdGetDirEntry dirPtr
-  errno <- getErrno
-  if entry == nullPtr
-    then
-      if errno /= eOK
-        then
-          fail "readdir failed"
-        else
-          pure Nothing
-    else
-      pure $ Just entry
+readDirent :: Ptr CDir -> IO (Maybe (CString, DirEntryType))
+readDirent dirPtr =
+  alloca
+    ( \entryIsDirPtr -> do
+        entry <- cRipfdGetDirEntry dirPtr entryIsDirPtr
+        errno <- getErrno
+        if entry == nullPtr
+          then
+            if errno /= eOK
+              then
+                fail "readdir failed"
+              else
+                pure Nothing
+          else
+            if entryIsDirPtr == nullPtr
+              then
+                fail "entryIsDirPtr is null"
+              else do
+                entryIsDir <- peek entryIsDirPtr
+                case entryIsDir of
+                  1 -> pure $ Just (entry, DirEntryDir)
+                  0 -> pure $ Just (entry, DirEntryNotDir)
+                  -1 -> pure $ Just (entry, DirEntryUnknown)
+                  _ -> fail $ "unexpected value for entryIsDir :" ++ show entryIsDir
+    )
 
 closeDir :: Ptr CDir -> IO ()
 closeDir dirPtr = do
@@ -69,25 +85,25 @@ isDir path = do
     (fail "dir check failed")
   pure $ retVal /= 0
 
-makeDirStream :: F.FSPath -> IO (Maybe (Stream (F.FSPath, F.FSPath)))
-makeDirStream path = do
-  pathIsDir <- F.useAsCString path isDir
-  if pathIsDir
-    then
-      pure $ Just Stream
-        { open = F.useAsCString path openDir,
-          next = \dirPtr -> do
-            maybeDirent <- readDirent dirPtr `onException` closeDir dirPtr
-            case maybeDirent of
-              Just direntCStr -> do
-                dirent <- F.packCString direntCStr `onException` closeDir dirPtr
-                let path' = F.appendPath path dirent
-                pure $ Just ((path', dirent),dirPtr)
-              Nothing -> pure Nothing,
-          close = closeDir
-        }
-    else
-      pure Nothing
+makeDirStream :: F.FSPath -> Stream (F.FSPath, F.FSPath, Bool)
+makeDirStream path =
+  Stream
+    { open = F.useAsCString path openDir,
+      next = \dirPtr -> do
+        maybeDirent <- readDirent dirPtr `onException` closeDir dirPtr
+        case maybeDirent of
+          Just (direntCStr, entryType) -> do
+            dirent <- F.packCString direntCStr `onException` closeDir dirPtr
+            let path' = F.appendPath path dirent
+            case entryType of
+              DirEntryDir -> pure $ Just ((path', dirent, True), dirPtr)
+              DirEntryNotDir -> pure $ Just ((path', dirent, False), dirPtr)
+              DirEntryUnknown -> do
+                pathIsDir <- F.useAsCString path' isDir `onException` closeDir dirPtr
+                pure $ Just ((path', dirent, pathIsDir), dirPtr)
+          Nothing -> pure Nothing,
+      close = closeDir
+    }
 
 withDirStream :: CString -> (Ptr CDir -> IO ()) -> IO ()
 withDirStream path f = do

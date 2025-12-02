@@ -162,7 +162,7 @@ closeStateSequence stateSequence = do
 -- Create stream that prepends new streams that are found by applying the supplied f to one of the
 -- stream values. Useful for recursive depth-first traversal of (for example) a directory tree.
 -- Stole this function idea straight from streamly lmaooooooooo
-concatIterateIO :: (a -> IO (Maybe (Stream a))) -> Stream a -> Stream a
+concatIterateIO :: (a -> Maybe (Stream a)) -> Stream a -> Stream a
 concatIterateIO f (Stream seedOpen seedNext seedClose) =
   Stream
     { open = do
@@ -175,7 +175,7 @@ concatIterateIO f (Stream seedOpen seedNext seedClose) =
             maybeResult <- currentNext currentState
             case maybeResult of
               Just (v, currentState') -> do
-                maybeStream <- f v `onException` (currentClose currentState' `finally` closeStateSequence (S.pop stateStack))
+                let maybeStream = f v
                 case maybeStream of
                   Just (Stream newOpen newNext newClose) -> do
                     newState <- newOpen `onException` (currentClose currentState' `finally` closeStateSequence (S.pop stateStack))
