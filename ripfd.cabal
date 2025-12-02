@@ -27,7 +27,7 @@ library
       DirStream
       FSPath
       ListDir
-      Sequential
+      OpaqueStore
       Stream
   other-modules:
       Paths_ripfd

@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Stream
@@ -13,7 +14,7 @@ where
 import Control.Exception
 import Data.Bifunctor
 import Data.Function
-import qualified Sequential as S
+import OpaqueStore
 
 -- Data type representing a stream of data. The open function acquires the stream resource, the
 -- next function returns the next object from the stream as well as the (potentially) updated stream
@@ -152,11 +153,11 @@ foldStream_ f identity stream = do
 mapStream_ :: (a -> IO b) -> Stream a -> IO ()
 mapStream_ f = foldStream_ (const f) undefined
 
-closeStateSequence :: S.Sequential (StreamFrame a) -> IO ()
-closeStateSequence stateSequence = do
-  case S.peek stateSequence of
+closeStateStore :: OpaqueStore c (StreamFrame a) => c (StreamFrame a) -> IO ()
+closeStateStore stateStore = do
+  case peek stateStore of
     Just (StreamFrame currentState _ currentClose) ->
-      currentClose currentState `finally` closeStateSequence (S.pop stateSequence)
+      currentClose currentState `finally` closeStateStore (pop stateStore)
     Nothing -> pure ()
 
 -- Create stream that prepends new streams that are found by applying the supplied f to one of the
@@ -167,10 +168,10 @@ concatIterateIO f (Stream seedOpen seedNext seedClose) =
   Stream
     { open = do
         seedState <- seedOpen
-        let stateStack = S.makeStack :: S.Sequential (StreamFrame a)
-        pure $ S.push (StreamFrame seedState seedNext seedClose) stateStack,
+        let stateStack = makeEmpty :: Stack (StreamFrame a)
+        pure $ push (StreamFrame seedState seedNext seedClose) stateStack,
       next = fix $ \self stateStack -> do
-        case S.peek stateStack of
+        case peek stateStack of
           Just (StreamFrame currentState currentNext currentClose) -> do
             maybeResult <- currentNext currentState
             case maybeResult of
@@ -178,22 +179,22 @@ concatIterateIO f (Stream seedOpen seedNext seedClose) =
                 let maybeStream = f v
                 case maybeStream of
                   Just (Stream newOpen newNext newClose) -> do
-                    newState <- newOpen `onException` (currentClose currentState' `finally` closeStateSequence (S.pop stateStack))
-                    pure $ Just (v, S.push (StreamFrame newState newNext newClose) $ S.replaceFirst (StreamFrame currentState' currentNext currentClose) stateStack)
-                  Nothing -> pure $ Just (v, S.replaceFirst (StreamFrame currentState' currentNext currentClose) stateStack)
+                    newState <- newOpen `onException` (currentClose currentState' `finally` closeStateStore (pop stateStack))
+                    pure $ Just (v, push (StreamFrame newState newNext newClose) $ replaceNext (StreamFrame currentState' currentNext currentClose) stateStack)
+                  Nothing -> pure $ Just (v, replaceNext (StreamFrame currentState' currentNext currentClose) stateStack)
               Nothing -> do
                 -- Normally we wouldn't catch and handle exceptions from next calls (since they're
                 -- supposed to do their own cleanup), but in this case we can't clean up the current
                 -- stream until we verify that the recursive next call below does not return Nothing.
                 -- As a result, we catch any exception and close the stream that was left dangling in
                 -- the current recursive call frame.
-                maybeResult' <- self (S.pop stateStack) `onException` currentClose currentState
+                maybeResult' <- self (pop stateStack) `onException` currentClose currentState
                 case maybeResult' of
                   Just result@(_, stateStack') -> do
-                    currentClose currentState `onException` closeStateSequence stateStack'
+                    currentClose currentState `onException` closeStateStore stateStack'
                     pure $ Just result
                   Nothing -> pure Nothing
           Nothing -> pure Nothing,
       close = \stateStack -> do
-        closeStateSequence stateStack
+        closeStateStore stateStack
     }
