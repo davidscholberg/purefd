@@ -3,3 +3,6 @@ snapshot:
 
 packages:
 - .
+
+extra-deps:
+- queues-1.0.0@sha256:58408ec87863e368a99e71faa5cec4da8e09c4f9aecc789f75953cf4d89c7241,5139

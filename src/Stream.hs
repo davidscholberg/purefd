@@ -8,9 +8,15 @@ module Stream
     foldStream,
     foldStream_,
     mapStream_,
+    parConcatIterateIO,
   )
 where
 
+import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.STM
+import Control.Monad
+import Data.PQueue.Prio.Min
 import Control.Exception
 import Data.Bifunctor
 import Data.Function
@@ -197,4 +203,132 @@ concatIterateIO f (Stream seedOpen seedNext seedClose) =
           Nothing -> pure Nothing,
       close = \stateStack -> do
         closeStateStore stateStack
+    }
+
+parConcatIndexToKey :: Stack Integer -> [Integer]
+parConcatIndexToKey = reverse . OpaqueStore.toList
+
+type ParConcatResultQueue a =
+  MinPQueue
+    [Integer]
+    (Maybe a, [Integer])
+
+type ParConcatStreamQueue a =
+  Queue (Stream a, Stack Integer)
+
+data ParConcatState a
+  = ParConcatState
+      (TVar (ParConcatStreamQueue a))
+      (TVar (ParConcatResultQueue a))
+      [Async ()]
+      [Integer]
+
+parConcatStreamWorker ::
+  (a -> Maybe (Stream a)) ->
+  TVar (ParConcatStreamQueue a) ->
+  TVar (ParConcatResultQueue a) ->
+  IO ()
+parConcatStreamWorker f streamQ resultQ = do
+  (Stream streamOpen streamNext streamClose, initialIndex) <-
+    atomically $ do
+      q <- readTVar streamQ
+      case peek q of
+        Just v -> do
+          writeTVar streamQ $ pop q
+          pure v
+        Nothing -> retry
+  initialState <- streamOpen
+  go (StreamFrame initialState streamNext streamClose) initialIndex
+  parConcatStreamWorker f streamQ resultQ
+  where
+    go (StreamFrame streamState streamNext streamClose) qindex = do
+      let qkey = parConcatIndexToKey qindex
+      maybeValue <- streamNext streamState
+      case maybeValue of
+        Just (v, streamState') -> do
+          let qindex' = updateNext (+ 1) $! qindex
+          let qkey' = parConcatIndexToKey qindex'
+          let maybeNewStream = f v
+          ( case maybeNewStream of
+              Just newStream -> do
+                let childIndex = push 0 qindex
+                let childKey = parConcatIndexToKey childIndex
+                atomically $ do
+                  q <- readTVar resultQ
+                  writeTVar resultQ (insert qkey (Just v, childKey) q)
+                atomically $ do
+                  q <- readTVar streamQ
+                  writeTVar streamQ (push (newStream, childIndex) q)
+              Nothing -> do
+                atomically $ do
+                  q <- readTVar resultQ
+                  writeTVar resultQ (insert qkey (Just v, qkey') q)
+            )
+            `onException` streamClose streamState'
+          go (StreamFrame streamState' streamNext streamClose) $! qindex'
+        Nothing -> do
+          let parentNextKey = parConcatIndexToKey $ updateNext (+ 1) $ pop qindex
+          atomically
+            ( do
+                q <- readTVar resultQ
+                writeTVar resultQ (insert qkey (Nothing, parentNextKey) q)
+            )
+            `onException` streamClose streamState
+          streamClose streamState
+
+-- NOTE: It is the callers responsibility to ensure that any part of a stream element that relies on
+-- thread-local resources has its evaluation sufficiently forced to avoid leaking those resources to
+-- other threads.
+-- TODO: We could place a constraint on the stream element to have an instance of NFData and then
+-- the thread worker could force all stream elements to NF before enqueueing them.
+parConcatIterateIO :: (a -> Maybe (Stream a)) -> Stream a -> Stream a
+parConcatIterateIO f seedStream =
+  Stream
+    { open = do
+        streamQ <- newTVarIO (makeEmpty :: ParConcatStreamQueue a)
+        resultQ <- newTVarIO (empty :: ParConcatResultQueue a)
+        pure $ ParConcatState streamQ resultQ [] [0],
+      next = fix $ \self (ParConcatState streamQ resultQ threads expectedKey) -> do
+        if not $ Prelude.null threads
+          then do
+            (maybeValue, nextKey) <-
+              atomically
+                ( do
+                    q <- readTVar resultQ
+                    case q of
+                      (k, v) :< q' ->
+                        if k == expectedKey
+                          then do
+                            writeTVar resultQ q'
+                            pure v
+                          else
+                            retry
+                      Empty -> retry
+                )
+                `onException` cancelMany threads
+            case maybeValue of
+              Just v ->
+                pure $ Just (v, ParConcatState streamQ resultQ threads nextKey)
+              Nothing -> do
+                if Prelude.null nextKey
+                  then
+                    pure Nothing
+                  else
+                    self $ ParConcatState streamQ resultQ threads nextKey
+          else do
+            threadCount <- getNumCapabilities
+            newThreads <-
+              replicateM
+                threadCount
+                ( do
+                    t <- async $ parConcatStreamWorker f streamQ resultQ
+                    link t
+                    pure t
+                )
+            atomically (modifyTVar' streamQ (push (seedStream, push 0 makeEmpty))) `onException` cancelMany newThreads
+            self $ ParConcatState streamQ resultQ newThreads expectedKey,
+      close = \(ParConcatState _ _ threads _) ->
+        unless
+          (Prelude.null threads)
+          (cancelMany threads)
     }

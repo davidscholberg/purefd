@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CApiFFI #-}
 
 module DirStream
@@ -93,7 +94,9 @@ makeDirStream path =
         maybeDirent <- readDirent dirPtr `onException` closeDir dirPtr
         case maybeDirent of
           Just (direntCStr, entryType) -> do
-            dirent <- F.packCString direntCStr `onException` closeDir dirPtr
+            -- We force dirent to WHNF in the event that this value gets passed to a different
+            -- thread where the pointer to direntCStr would no longer be valid.
+            !dirent <- F.packCString direntCStr `onException` closeDir dirPtr
             let path' = F.appendPath path dirent
             case entryType of
               DirEntryDir -> pure $ Just ((path', dirent, True), dirPtr)

@@ -29,11 +29,15 @@ library:
   source-dirs: src
   include-dirs: c
   dependencies:
+  - async
   - bytestring
   - directory
   - directory-ospath-streaming
   - filepath
+  - pqueue
+  - queues
   - regex-tdfa
+  - stm
 
 executables:
   ripfd-exe:

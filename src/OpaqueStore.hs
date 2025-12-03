@@ -10,13 +10,16 @@ module OpaqueStore
     peek,
     pop,
     push,
+    Queue,
     replaceNext,
     Stack,
+    toList,
     updateNext,
   )
 where
 
 import Data.Maybe
+import qualified Queue as Q
 
 -- | OpaqueStore is an abstraction over stacks and queues. A given type that implements OpaqueStore
 -- | will either be a stack or a queue depending on the underlying container and implementations of
@@ -36,6 +39,7 @@ class OpaqueStore c a where
   peek :: c a -> Maybe a
   pop :: c a -> c a
   replaceNext :: a -> c a -> c a
+  toList :: c a -> [a]
   updateNext :: (a -> a) -> c a -> c a
   updateNext f s =
     case peek s of
@@ -62,3 +66,24 @@ instance OpaqueStore Stack a where
     case c of
       (_ : vs) -> Stack $ v : vs
       [] -> Stack [v]
+  toList (Stack c) = c
+
+newtype Queue a = Queue (Q.Queue a)
+  deriving Show
+
+instance OpaqueStore Queue a where
+  makeEmpty = Queue Q.empty
+  push v (Queue c) = Queue $ Q.enqueue v c
+  peek (Queue c) =
+    case c of
+      Q.Full v _ -> Just v
+      Q.Empty -> Nothing
+  pop (Queue c) =
+    case c of
+      Q.Full _ c' -> Queue c'
+      Q.Empty -> Queue Q.empty
+  replaceNext v (Queue c) =
+    case c of
+      Q.Full _ c' -> Queue $ Q.enqueueFront v c'
+      Q.Empty -> Queue $ Q.singleton v
+  toList (Queue c) = Q.toList c

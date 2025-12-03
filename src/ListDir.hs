@@ -27,7 +27,7 @@ listDir maybeRegexStr pathStr = do
   if pathIsDir
     then
       mapStream_ (processDirEntry maybeRegex)
-        $ concatIterateIO
+        $ parConcatIterateIO
           ( \(p, _, d) ->
               if d
                 then
