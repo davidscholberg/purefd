@@ -31,9 +31,6 @@ library:
   dependencies:
   - async
   - bytestring
-  - directory
-  - directory-ospath-streaming
-  - filepath
   - pqueue
   - queues
   - regex-tdfa
