@@ -321,7 +321,7 @@ parConcatIterateIO f seedStream =
               replicateM
                 threadCount
                 ( do
-                    t <- async $ parConcatStreamWorker f streamQ resultQ
+                    t <- asyncBound $ parConcatStreamWorker f streamQ resultQ
                     link t
                     pure t
                 )
