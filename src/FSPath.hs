@@ -3,6 +3,7 @@
 module FSPath
   ( FSPath(..),
     appendPath,
+    concatToByteStringLines,
     fromByteString,
     pack,
     packCString,
@@ -39,6 +40,9 @@ pack = fromByteString . BSC.pack
 addTerminatingNull :: BS.ByteString -> BS.ByteString
 addTerminatingNull = flip BS.snoc 0
 
+addTerminatingNewline :: BS.ByteString -> BS.ByteString
+addTerminatingNewline = flip BS.snoc 10
+
 trimTrailingSlashes :: BS.ByteString -> BS.ByteString
 trimTrailingSlashes p =
   case BS.unsnoc p of
@@ -59,6 +63,9 @@ toByteString (FSPath bs) =
   case BS.unsnoc bs of
     Just (bs', _) -> bs'
     Nothing -> bs
+
+concatToByteStringLines :: [FSPath] -> BS.ByteString
+concatToByteStringLines = BS.concat . map (addTerminatingNewline . toByteString)
 
 useAsCString :: FSPath -> (CString -> IO a) -> IO a
 useAsCString (FSPath bs) = BSU.unsafeUseAsCString bs

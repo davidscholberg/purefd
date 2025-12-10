@@ -33,7 +33,7 @@ listDir maybeRegexStr pathStr = do
           $ parConcatIterate
             makeDirStream'
             (matchPath maybeRegex)
-            128
+            512
           $ makeDirStream path
       case acc of
         Left (paths, _) -> printDirEntries $ sort paths
@@ -69,6 +69,4 @@ accOrPrintDirEntries outputMode (pathList, pathCount) =
       pure $ Right ()
 
 printDirEntries :: [F.FSPath] -> IO ()
-printDirEntries =
-  mapM_
-    (BS.putStr . flip BS.snoc 10 . F.toByteString)
+printDirEntries = BS.putStr . F.concatToByteStringLines
