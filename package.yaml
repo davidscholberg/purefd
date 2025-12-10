@@ -31,7 +31,6 @@ library:
   dependencies:
   - async
   - bytestring
-  - pqueue
   - queues
   - regex-tdfa
   - stm

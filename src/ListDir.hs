@@ -3,9 +3,9 @@ module ListDir
   )
 where
 
-import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import Data.List (sort)
 import DirStream
 import qualified FSPath as F
 import Stream
@@ -25,22 +25,50 @@ listDir maybeRegexStr pathStr = do
   let path = F.pack pathStr
   pathIsDir <- F.useAsCString path isDir
   if pathIsDir
-    then
-      mapStream_ (processDirEntry maybeRegex)
-        $ parConcatIterateIO
-          ( \(p, _, d) ->
-              if d
-                then
-                  Just $ makeDirStream p
-                else
-                  Nothing
-          )
-        $ makeDirStream path
+    then do
+      acc <-
+        foldStream
+          accOrPrintDirEntries
+          (Left ([], 0))
+          $ parConcatIterate
+            makeDirStream'
+            (matchPath maybeRegex)
+            128
+          $ makeDirStream path
+      case acc of
+        Left (paths, _) -> printDirEntries $ sort paths
+        Right () -> pure ()
     else
       fail $ "path is not a directory: " ++ pathStr
+  where
+    matchPath :: Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> Maybe F.FSPath
+    matchPath maybeRegex (path, dirEntry, _) =
+      case maybeRegex of
+        Just regex ->
+          if regex `matchTest` F.toByteString dirEntry
+            then
+              Just path
+            else
+              Nothing
+        Nothing ->
+          Just path
 
-processDirEntry :: Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> IO ()
-processDirEntry maybeRegex (path, dirEntry, _) =
-  when
-    (maybe True (`matchTest` F.toByteString dirEntry) maybeRegex)
-    (BS.putStr $ flip BS.snoc 10 $ F.toByteString path)
+accOrPrintDirEntries :: Either ([F.FSPath], Integer) () -> ([F.FSPath], Integer) -> IO (Either ([F.FSPath], Integer) ())
+accOrPrintDirEntries outputMode (pathList, pathCount) =
+  case outputMode of
+    Left (accList, accCount) -> do
+      let newAccCount = accCount + pathCount
+      if newAccCount > 1024
+        then do
+          printDirEntries $ pathList ++ accList
+          pure $ Right ()
+        else
+          pure $ Left (pathList ++ accList, newAccCount)
+    Right () -> do
+      printDirEntries pathList
+      pure $ Right ()
+
+printDirEntries :: [F.FSPath] -> IO ()
+printDirEntries =
+  mapM_
+    (BS.putStr . flip BS.snoc 10 . F.toByteString)

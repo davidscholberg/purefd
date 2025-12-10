@@ -7,6 +7,7 @@ module DirStream
     openDir,
     isDir,
     makeDirStream,
+    makeDirStream',
     readDirent,
     withDirStream,
   )
@@ -107,6 +108,14 @@ makeDirStream path =
           Nothing -> pure Nothing,
       close = closeDir
     }
+
+makeDirStream' :: (F.FSPath, F.FSPath, Bool) -> Maybe (Stream (F.FSPath, F.FSPath, Bool))
+makeDirStream' (path, _, pathIsDir) =
+  if pathIsDir
+    then
+      Just $ makeDirStream path
+    else
+      Nothing
 
 withDirStream :: CString -> (Ptr CDir -> IO ()) -> IO ()
 withDirStream path f = do

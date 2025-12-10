@@ -20,6 +20,7 @@ import Foreign.C.Types
 foreign import capi unsafe "string.h strlen" cStrlen :: CString -> IO CSize
 
 newtype FSPath = FSPath BS.ByteString
+  deriving (Eq, Ord)
 
 fromByteString :: BS.ByteString -> FSPath
 fromByteString = FSPath . addTerminatingNull . trimTrailingSlashes
