@@ -18,7 +18,7 @@ import qualified Data.ByteString.Unsafe as BSU
 import Foreign.C.String
 import Foreign.C.Types
 
-foreign import capi unsafe "string.h strlen" cStrlen :: CString -> IO CSize
+foreign import capi unsafe "string.h strlen" cStrlen :: CString -> CSize
 
 newtype FSPath = FSPath BS.ByteString
   deriving (Eq, Ord)
@@ -30,7 +30,7 @@ fromByteString = FSPath . addTerminatingNull . trimTrailingSlashes
 -- This function assumes that the cstring does not have a trailing path sep.
 packCString :: CString -> IO FSPath
 packCString cstr = do
-  strSize <- cStrlen cstr
+  let strSize = cStrlen cstr
   bs <- BSU.unsafePackCStringLen (cstr, fromIntegral strSize + 1)
   pure $ FSPath $ BS.copy bs
 
