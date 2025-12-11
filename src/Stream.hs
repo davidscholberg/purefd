@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
@@ -261,7 +262,7 @@ parConcatStreamWorker newStreamF pipelineF streamQ resultQ activeTCount pendingT
               atomically (modifyTVar' streamQ (push newStream)) `onException` streamClose streamState'
             Nothing -> pure ()
           case pipelineF v of
-            Just pipelinedV -> do
+            Just !pipelinedV -> do
               let batch' = (pipelinedV : batchList, currentBatchSize + 1)
               if currentBatchSize < batchSize - 1
                 then

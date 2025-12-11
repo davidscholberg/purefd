@@ -32,9 +32,7 @@ listDir maybeRegexStr pathStr = do
           (Left ([], 0))
           $ parConcatIterate
             makeDirStream'
-            -- TODO: we could potentially just convert to regular newline terminated bytestrings
-            -- here instead of in the main thread.
-            (appendPathSep . matchPath maybeRegex)
+            (fmap (toNLTerminatedBS . appendPathSep) . matchPath maybeRegex)
             512
           $ makeDirStream path
       case acc of
@@ -55,18 +53,18 @@ matchPath maybeRegex (path, dirEntry, pathIsDir) =
     Nothing ->
       Just (path, pathIsDir)
 
-appendPathSep :: Maybe (F.FSPath, Bool) -> Maybe F.FSPath
-appendPathSep maybeElement =
-  case maybeElement of
-    Just (path, pathIsDir) ->
-      if pathIsDir
-        then
-          Just $ F.appendPath path $ F.fromByteString BS.empty
-        else
-          Just path
-    Nothing -> Nothing
+appendPathSep :: (F.FSPath, Bool) -> F.FSPath
+appendPathSep (path, pathIsDir) =
+  if pathIsDir
+    then
+      F.appendPath path $ F.fromByteString BS.empty
+    else
+      path
 
-accOrPrintDirEntries :: Either ([F.FSPath], Integer) () -> ([F.FSPath], Integer) -> IO (Either ([F.FSPath], Integer) ())
+toNLTerminatedBS :: F.FSPath -> BS.ByteString
+toNLTerminatedBS = flip BS.snoc 10 . F.toByteString
+
+accOrPrintDirEntries :: Either ([BS.ByteString], Integer) () -> ([BS.ByteString], Integer) -> IO (Either ([BS.ByteString], Integer) ())
 accOrPrintDirEntries outputMode (pathList, pathCount) =
   case outputMode of
     Left (accList, accCount) -> do
@@ -81,5 +79,5 @@ accOrPrintDirEntries outputMode (pathList, pathCount) =
       printDirEntries pathList
       pure $ Right ()
 
-printDirEntries :: [F.FSPath] -> IO ()
-printDirEntries = BS.putStr . F.concatToByteStringLines
+printDirEntries :: [BS.ByteString] -> IO ()
+printDirEntries = BS.putStr . BS.concat
