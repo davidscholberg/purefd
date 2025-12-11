@@ -5,6 +5,7 @@ module FSPath
     appendPath,
     concatToByteStringLines,
     fromByteString,
+    FSPath.null,
     pack,
     packCString,
     toByteString,
@@ -37,6 +38,9 @@ packCString cstr = do
 pack :: String -> FSPath
 pack = fromByteString . BSC.pack
 
+null :: FSPath -> Bool
+null (FSPath bs) = bs == BS.singleton 0
+
 addTerminatingNull :: BS.ByteString -> BS.ByteString
 addTerminatingNull = flip BS.snoc 0
 
@@ -49,13 +53,22 @@ trimTrailingSlashes p =
     Just (p', 47) -> trimTrailingSlashes p'
     _ -> p
 
+-- An empty path1 is treated as an implicit "." in that this function will return path2 unmodified.
 appendPath :: FSPath -> FSPath -> FSPath
 appendPath (FSPath path1) (FSPath path2) =
   FSPath $
     BS.append
       (case BS.unsnoc path1 of
-        Just (path1', _) -> BS.snoc path1' 47
-        Nothing -> BS.snoc path1 47)
+        Just (path1', 0) ->
+          if BS.null path1'
+            then
+              path1'
+            else
+              BS.snoc path1' 47
+        -- NOTE: This code should be unreachable since FSPaths should always have a terminating null
+        -- byte.
+        Just (_, _) -> undefined
+        Nothing -> undefined)
       path2
 
 toByteString :: FSPath -> BS.ByteString
@@ -67,5 +80,11 @@ toByteString (FSPath bs) =
 concatToByteStringLines :: [FSPath] -> BS.ByteString
 concatToByteStringLines = BS.concat . map (addTerminatingNewline . toByteString)
 
+-- An empty path is treated as ".".
 useAsCString :: FSPath -> (CString -> IO a) -> IO a
-useAsCString (FSPath bs) = BSU.unsafeUseAsCString bs
+useAsCString p@(FSPath bs) =
+  if FSPath.null p
+    then
+      BSU.unsafeUseAsCString $ BS.snoc (BS.singleton 46) 0
+    else
+      BSU.unsafeUseAsCString bs
