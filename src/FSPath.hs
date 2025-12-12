@@ -5,6 +5,7 @@ module FSPath
     appendPath,
     concatToByteStringLines,
     fromByteString,
+    isSuffixOf,
     FSPath.null,
     pack,
     packCString,
@@ -24,6 +25,9 @@ foreign import capi unsafe "string.h strlen" cStrlen :: CString -> CSize
 newtype FSPath = FSPath BS.ByteString
   deriving (Eq, Ord)
 
+instance Show FSPath where
+  show = show . toByteString
+
 fromByteString :: BS.ByteString -> FSPath
 fromByteString = FSPath . addTerminatingNull . trimTrailingSlashes
 
@@ -40,6 +44,9 @@ pack = fromByteString . BSC.pack
 
 null :: FSPath -> Bool
 null (FSPath bs) = bs == BS.singleton 0
+
+isSuffixOf :: FSPath -> FSPath -> Bool
+isSuffixOf (FSPath bs1) (FSPath bs2) = BS.isSuffixOf bs1 bs2
 
 addTerminatingNull :: BS.ByteString -> BS.ByteString
 addTerminatingNull = flip BS.snoc 0

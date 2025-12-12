@@ -24,6 +24,7 @@ source-repository head
 
 library
   exposed-modules:
+      Config
       DirStream
       FSPath
       ListDir

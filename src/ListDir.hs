@@ -3,26 +3,16 @@ module ListDir
   )
 where
 
+import Config
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
 import Data.List (sort)
 import DirStream
 import qualified FSPath as F
 import Stream
 import Text.Regex.TDFA
-import Text.Regex.TDFA.ByteString
 
-compileRegex :: String -> IO (Maybe Regex)
-compileRegex regexStr = do
-  let eitherRegex = compile defaultCompOpt defaultExecOpt $ BSC.pack regexStr
-  case eitherRegex of
-    Left e -> fail e
-    Right r -> pure $ Just r
-
-listDir :: Maybe String -> String -> IO ()
-listDir maybeRegexStr pathStr = do
-  maybeRegex <- maybe (pure Nothing) compileRegex maybeRegexStr
-  let path = F.pack pathStr
+listDir :: Cfg -> IO ()
+listDir (Cfg maybeRegex path cfgOpts) = do
   pathIsDir <- F.useAsCString path isDir
   if pathIsDir
     then do
@@ -32,26 +22,37 @@ listDir maybeRegexStr pathStr = do
           (Left ([], 0))
           $ parConcatIterate
             makeDirStream'
-            (fmap (toNLTerminatedBS . appendPathSep) . matchPath maybeRegex)
+            (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybeRegex)
             512
           $ makeDirStream path
       case acc of
         Left (paths, _) -> printDirEntries $ sort paths
         Right () -> pure ()
     else
-      fail $ "path is not a directory: " ++ pathStr
+      fail $ "path is not a directory: " ++ show path
 
-matchPath :: Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
-matchPath maybeRegex (path, dirEntry, pathIsDir) =
-  case maybeRegex of
-    Just regex ->
-      if regex `matchTest` F.toByteString dirEntry
+matchPath :: CfgOptions -> Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
+matchPath cfgOpts maybeRegex (path, dirEntry, pathIsDir) =
+  case cfgOpts of
+    CfgMatchExt ext ->
+      if F.isSuffixOf ext dirEntry
         then
-          Just (path, pathIsDir)
+          go
         else
           Nothing
-    Nothing ->
-      Just (path, pathIsDir)
+    _ ->
+      go
+  where
+    go =
+      case maybeRegex of
+        Just regex ->
+          if regex `matchTest` F.toByteString dirEntry
+            then
+              Just (path, pathIsDir)
+            else
+              Nothing
+        Nothing ->
+          Just (path, pathIsDir)
 
 appendPathSep :: (F.FSPath, Bool) -> F.FSPath
 appendPathSep (path, pathIsDir) =
