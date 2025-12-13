@@ -6,6 +6,7 @@ where
 import Config
 import qualified Data.ByteString as BS
 import Data.List (sort)
+import Data.Maybe
 import DirStream
 import qualified FSPath as F
 import Stream
@@ -23,6 +24,7 @@ listDir (Cfg maybeRegex path cfgOpts) = do
           $ parConcatIterate
             makeDirStream'
             (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybeRegex)
+            (if isJust maybeRegex then id else (`div` 2))
             512
           $ makeDirStream path
       case acc of

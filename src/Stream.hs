@@ -284,8 +284,8 @@ parConcatStreamWorker newStreamF pipelineF streamQ resultQ activeTCount pendingT
 -- other threads.
 -- TODO: We could place a constraint on the stream element to have an instance of NFData and then
 -- the thread worker could force all stream elements to NF before enqueueing them.
-parConcatIterate :: (a -> Maybe (Stream a)) -> (a -> Maybe b) -> Integer -> Stream a -> Stream ([b], Integer)
-parConcatIterate newStreamF pipelineF batchSize seedStream =
+parConcatIterate :: (a -> Maybe (Stream a)) -> (a -> Maybe b) -> (Int -> Int) -> Integer -> Stream a -> Stream ([b], Integer)
+parConcatIterate newStreamF pipelineF threadCountF batchSize seedStream =
   Stream
     { open = do
         streamQ <- newTVarIO (makeEmpty :: Queue (Stream a))
@@ -320,13 +320,13 @@ parConcatIterate newStreamF pipelineF batchSize seedStream =
               Nothing ->
                 pure Nothing
           else do
-            threadCount <- getNumCapabilities
+            threadCount <- fmap threadCountF getNumCapabilities
             atomically $ writeTVar pendingTCount threadCount
             newThreads <-
               replicateM
                 threadCount
                 ( do
-                    t <- asyncBound $ parConcatStreamWorker newStreamF pipelineF streamQ resultQ activeTCount pendingTCount batchSize
+                    t <- async $ parConcatStreamWorker newStreamF pipelineF streamQ resultQ activeTCount pendingTCount batchSize
                     link t
                     pure t
                 )

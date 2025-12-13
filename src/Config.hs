@@ -67,7 +67,7 @@ parseCliArgs args = do
     Right cfg -> Right cfg
 
 parseCliArg :: ParseState -> String -> Either CliArgError ParseState
-parseCliArg _ "" = Left $ CliArgError "empty dir value not allowed"
+parseCliArg _ "" = Left $ CliArgError "empty arg value not allowed"
 parseCliArg ps arg =
   case ps of
     Left (ParseOptState _ OptExtention) -> Right $ Left $ ParseOptState (CfgMatchExt $ F.pack $ "." ++ arg) OptNone
