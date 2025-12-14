@@ -12,7 +12,7 @@ import Stream
 import Text.Regex.TDFA
 
 listDir :: Cfg -> IO ()
-listDir (Cfg maybeRegex path cfgOpts) = do
+listDir (Cfg cfgOpts maybeRegex path) = do
   pathIsDir <- F.useAsCString path isDir
   if pathIsDir
     then do
@@ -33,13 +33,11 @@ listDir (Cfg maybeRegex path cfgOpts) = do
 
 matchPath :: CfgOptions -> Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
 matchPath cfgOpts maybeRegex (path, dirEntry, pathIsDir) =
-  case cfgOpts of
-    CfgMatchExt ext ->
+  case cfgFilterExtension cfgOpts of
+    Just (CfgFilterExtension ext) ->
       if F.isSuffixOf ext dirEntry
-        then
-          go
-        else
-          Nothing
+        then go
+        else Nothing
     _ ->
       go
   where
@@ -47,20 +45,16 @@ matchPath cfgOpts maybeRegex (path, dirEntry, pathIsDir) =
       case maybeRegex of
         Just regex ->
           if regex `matchTest` F.toByteString dirEntry
-            then
-              Just (path, pathIsDir)
-            else
-              Nothing
+            then Just (path, pathIsDir)
+            else Nothing
         Nothing ->
           Just (path, pathIsDir)
 
 appendPathSep :: (F.FSPath, Bool) -> F.FSPath
 appendPathSep (path, pathIsDir) =
   if pathIsDir
-    then
-      F.appendPath path $ F.fromByteString BS.empty
-    else
-      path
+    then F.appendPath path $ F.fromByteString BS.empty
+    else path
 
 toNLTerminatedBS :: F.FSPath -> BS.ByteString
 toNLTerminatedBS = flip BS.snoc 10 . F.toByteString

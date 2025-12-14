@@ -1,88 +1,170 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+
 module Config
   ( Cfg (..),
+    CfgFilterExtension (..),
     CfgOptions (..),
     parseCliArgs,
   )
 where
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad
+import Data.Bifunctor
 import qualified Data.ByteString.Char8 as BSC
 import qualified FSPath as F
 import Text.Regex.TDFA
 import Text.Regex.TDFA.ByteString
 
-data CfgOptions
-  = CfgMatchAll
-  | CfgMatchExt F.FSPath
+newtype CfgFilterExtension = CfgFilterExtension F.FSPath
+  deriving (Show)
+
+newtype CfgOptions
+  = CfgOptions
+  { cfgFilterExtension :: Maybe CfgFilterExtension
+  }
+  deriving (Show)
 
 data Cfg
   = Cfg
+      CfgOptions
       (Maybe Regex)
       F.FSPath
-      CfgOptions
 
-data ExpectedOptVal
-  = OptNone
-  | OptExtention
-  deriving Show
-
-data ParseOptState =
-  ParseOptState
-    CfgOptions
-    ExpectedOptVal
-
-type ParseState =
-  Either
-    ParseOptState
-    Cfg
+instance Show Cfg where
+  show (Cfg opts maybeRegex path) =
+    "Cfg ("
+      ++ show opts
+      ++ ") "
+      ++ maybe "Nothing" (const "(Just regex)") maybeRegex
+      ++ " ("
+      ++ show path
+      ++ ")"
 
 newtype CliArgError = CliArgError String
-  deriving Show
+  deriving (Show)
 
-instance Exception CliArgError where
-  displayException (CliArgError s) = "cli arg error: " ++ s
+instance Exception CliArgError
 
-defaultSearchDir :: F.FSPath
-defaultSearchDir = F.pack ""
+data CliArgNoParse = CliArgNoParse
+  deriving (Show)
 
-defaultRegex :: Maybe Regex
-defaultRegex = Nothing
+type CliArgParseResult a = Either CliArgError (Either CliArgNoParse (a, [String]))
+
+newtype CliArgParser a = CliArgParser {runCliArgParser :: [String] -> CliArgParseResult a}
+
+instance Functor CliArgParser where
+  fmap f (CliArgParser p) = CliArgParser $ fmap (fmap (first f)) . p
+
+instance Applicative CliArgParser where
+  pure a = CliArgParser $ Right . Right . (a,)
+  CliArgParser pf <*> CliArgParser pa = CliArgParser $ \ss ->
+    case pf ss of
+      Left e -> Left e
+      Right (Left e) -> Right $ Left e
+      Right (Right (f, ss')) -> case pa ss' of
+        Left e' -> Left e'
+        Right (Left e') -> Right $ Left e'
+        Right (Right (a, ss'')) -> Right $ Right (f a, ss'')
+
+instance Alternative CliArgParser where
+  empty = CliArgParser $ const $ Right $ Left CliArgNoParse
+  CliArgParser p1 <|> CliArgParser p2 = CliArgParser $ \ss ->
+    case p1 ss of
+      Left e -> Left e
+      Right (Left _) -> p2 ss
+      Right (Right v) -> Right $ Right v
+
+instance Monad CliArgParser where
+  CliArgParser p >>= f = CliArgParser $ \ss ->
+    case p ss of
+      Left e -> Left e
+      Right (Left e) -> Right $ Left e
+      Right (Right (a, ss')) -> runCliArgParser (f a) ss'
+
+manyCompose :: (Alternative f) => f (a -> a) -> f (a -> a)
+manyCompose p = go
+  where
+    go = liftA2 (.) p go <|> pure id
+
+fatalParse :: String -> CliArgParseResult a
+fatalParse = Left . CliArgError
+
+noParse :: CliArgParseResult a
+noParse = Right $ Left CliArgNoParse
+
+yesParse :: (a, [String]) -> CliArgParseResult a
+yesParse = Right . Right
+
+parseOpt :: String -> CliArgParser String
+parseOpt optStr = CliArgParser $ \case
+  optStr' : ss ->
+    if optStr' == optStr
+      then yesParse (optStr, ss)
+      else noParse
+  _ -> noParse
+
+parseOptWithArg ::
+  String ->
+  String ->
+  (String -> CfgOptions -> CfgOptions) ->
+  CliArgParser (CfgOptions -> CfgOptions)
+parseOptWithArg shortOpt longOpt optArgF = CliArgParser $ \case
+  optStr : ss
+    | optStr == shortOpt || optStr == longOpt ->
+        case ss of
+          argStr : ss' -> yesParse (optArgF argStr, ss')
+          _ -> fatalParse $ "expected arg for " ++ optStr ++ " option"
+    | otherwise -> noParse
+  _ -> noParse
+
+parseFilterExtension :: CliArgParser (CfgOptions -> CfgOptions)
+parseFilterExtension =
+  parseOptWithArg
+    "-e"
+    "--extension"
+    ( \argStr opts ->
+        opts {cfgFilterExtension = Just $ CfgFilterExtension $ F.pack $ "." ++ argStr}
+    )
+
+parseEndofOpts :: CliArgParser ()
+parseEndofOpts = void $ parseOpt "--"
 
 defaultCfgOptions :: CfgOptions
-defaultCfgOptions = CfgMatchAll
+defaultCfgOptions =
+  CfgOptions {cfgFilterExtension = Nothing}
 
-initialParseState :: ParseState
-initialParseState = Left $ ParseOptState defaultCfgOptions OptNone
+parseCfgOptions :: CliArgParser (CfgOptions -> CfgOptions)
+parseCfgOptions =
+  manyCompose parseFilterExtension
+    <* (parseEndofOpts <|> pure ())
 
-compileRegexStr :: String -> Either CliArgError Regex
-compileRegexStr = either (Left . CliArgError) Right . compile defaultCompOpt defaultExecOpt . BSC.pack
+parseNextArg :: CliArgParser String
+parseNextArg = CliArgParser $ \case
+  argStr : ss -> yesParse (argStr, ss)
+  _ -> noParse
+
+parseRegexArg :: CliArgParser Regex
+parseRegexArg = CliArgParser $ \case
+  argStr : ss ->
+    case compile defaultCompOpt defaultExecOpt $ BSC.pack argStr of
+      Left e -> fatalParse e
+      Right r -> yesParse (r, ss)
+  _ -> noParse
+
+parseCfg :: CliArgParser Cfg
+parseCfg =
+  Cfg
+    <$> (parseCfgOptions <*> pure defaultCfgOptions)
+    <*> optional parseRegexArg
+    <*> (F.pack <$> (parseNextArg <|> pure ""))
 
 parseCliArgs :: [String] -> Either CliArgError Cfg
-parseCliArgs args = do
-  ps <- foldM parseCliArg initialParseState args
-  case ps of
-    Left (ParseOptState cfgOpts OptNone) -> Right $ Cfg defaultRegex defaultSearchDir cfgOpts
-    Left (ParseOptState _ expectedOpt) -> Left $ CliArgError $ "expected value for opt " ++ show expectedOpt
-    Right cfg -> Right cfg
-
-parseCliArg :: ParseState -> String -> Either CliArgError ParseState
-parseCliArg _ "" = Left $ CliArgError "empty dir value not allowed"
-parseCliArg ps arg =
-  case ps of
-    Left (ParseOptState _ OptExtention) -> Right $ Left $ ParseOptState (CfgMatchExt $ F.pack $ "." ++ arg) OptNone
-    Left (ParseOptState cfgOpts OptNone)
-      | arg == "-e" || arg == "--extension" -> Right $ Left $ ParseOptState cfgOpts OptExtention
-      | arg == "--" -> Right $ Right $ Cfg defaultRegex defaultSearchDir cfgOpts
-      | otherwise -> do
-          regex <- compileRegexStr arg
-          Right $ Right $ Cfg (Just regex) defaultSearchDir cfgOpts
-    Right (Cfg Nothing searchDir cfgOpts) -> do
-      regex <- compileRegexStr arg
-      Right $ Right $ Cfg (Just regex) searchDir cfgOpts
-    Right (Cfg regex searchDir cfgOpts) ->
-      if F.null searchDir
-        then
-          Right $ Right $ Cfg regex (F.pack arg) cfgOpts
-        else
-          Left $ CliArgError $ "unexpected arg after search dir: \"" ++ arg ++ "\""
+parseCliArgs args =
+  case runCliArgParser parseCfg args of
+    Left e -> Left e
+    Right (Left _) -> Left $ CliArgError "internal error: no parse"
+    Right (Right (cfg, [])) -> Right cfg
+    Right (Right (_, ss)) -> Left $ CliArgError $ "unexpected trailing arg(s): " ++ show ss
