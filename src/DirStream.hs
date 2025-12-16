@@ -32,9 +32,9 @@ foreign import capi unsafe "dirent.h opendir" cOpendir :: CString -> IO (Ptr CDi
 
 foreign import capi unsafe "dirent.h closedir" cClosedir :: Ptr CDir -> IO CInt
 
-foreign import capi unsafe "posix_helper.h ripfd_get_dir_entry" cRipfdGetDirEntry :: Ptr CDir -> Ptr CInt -> IO CString
+foreign import capi unsafe "posix_helper.h purefd_get_dir_entry" cPurefdGetDirEntry :: Ptr CDir -> Ptr CInt -> IO CString
 
-foreign import capi unsafe "posix_helper.h ripfd_is_dir" cRipfdIsDir :: CString -> IO CInt
+foreign import capi unsafe "posix_helper.h purefd_is_dir" cPurefdIsDir :: CString -> IO CInt
 
 openDir :: CString -> IO (Ptr CDir)
 openDir pathCStr = do
@@ -50,7 +50,7 @@ readDirent :: Ptr CDir -> IO (Maybe (CString, DirEntryType))
 readDirent dirPtr =
   alloca
     ( \entryIsDirPtr -> do
-        entry <- cRipfdGetDirEntry dirPtr entryIsDirPtr
+        entry <- cPurefdGetDirEntry dirPtr entryIsDirPtr
         errno <- getErrno
         if entry == nullPtr
           then
@@ -81,7 +81,7 @@ closeDir dirPtr = do
 
 isDir :: CString -> IO Bool
 isDir path = do
-  retVal <- cRipfdIsDir path
+  retVal <- cPurefdIsDir path
   when
     (retVal == -1)
     (fail "dir check failed")
