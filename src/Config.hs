@@ -3,7 +3,6 @@
 
 module Config
   ( Cfg (..),
-    CfgFilterExtension (..),
     CfgOptions (..),
     parseCliArgs,
   )
@@ -18,19 +17,17 @@ import qualified FSPath as F
 import Text.Regex.TDFA
 import Text.Regex.TDFA.ByteString
 
-newtype CfgFilterExtension = CfgFilterExtension F.FSPath
-  deriving (Show)
-
-newtype CfgOptions
+data CfgOptions
   = CfgOptions
-  { cfgFilterExtension :: Maybe CfgFilterExtension
+  { cfgFilterExtension :: Maybe F.FSPath,
+    cfgGlobMatch :: Bool
   }
   deriving (Show)
 
 data Cfg
   = Cfg
       CfgOptions
-      (Maybe Regex)
+      (Maybe (Either Regex F.FSPath))
       F.FSPath
 
 instance Show Cfg where
@@ -98,11 +95,23 @@ noParse = Right $ Left CliArgNoParse
 yesParse :: (a, [String]) -> CliArgParseResult a
 yesParse = Right . Right
 
-parseOpt :: String -> CliArgParser String
-parseOpt optStr = CliArgParser $ \case
-  optStr' : ss ->
-    if optStr' == optStr
-      then yesParse (optStr, ss)
+parseMatchingArg :: String -> CliArgParser String
+parseMatchingArg argStr = CliArgParser $ \case
+  argStr' : ss ->
+    if argStr' == argStr
+      then yesParse (argStr, ss)
+      else noParse
+  _ -> noParse
+
+parseOpt ::
+  String ->
+  String ->
+  (CfgOptions -> CfgOptions) ->
+  CliArgParser (CfgOptions -> CfgOptions)
+parseOpt shortOpt longOpt parsedF = CliArgParser $ \case
+  optStr : ss ->
+    if optStr == shortOpt || optStr == longOpt
+      then yesParse (parsedF, ss)
       else noParse
   _ -> noParse
 
@@ -126,20 +135,37 @@ parseFilterExtension =
     "-e"
     "--extension"
     ( \argStr opts ->
-        opts {cfgFilterExtension = Just $ CfgFilterExtension $ F.pack $ "." ++ argStr}
+        opts {cfgFilterExtension = Just $ F.pack $ "." ++ argStr}
+    )
+
+parseGlobMatch :: CliArgParser (CfgOptions -> CfgOptions)
+parseGlobMatch =
+  parseOpt
+    "-g"
+    "--glob"
+    ( \opts ->
+        opts {cfgGlobMatch = True}
     )
 
 parseEndofOpts :: CliArgParser ()
-parseEndofOpts = void $ parseOpt "--"
+parseEndofOpts = void $ parseMatchingArg "--"
 
 defaultCfgOptions :: CfgOptions
 defaultCfgOptions =
-  CfgOptions {cfgFilterExtension = Nothing}
+  CfgOptions
+    { cfgFilterExtension = Nothing,
+      cfgGlobMatch = False
+    }
 
-parseCfgOptions :: CliArgParser (CfgOptions -> CfgOptions)
+parseCfgOptions :: CliArgParser CfgOptions
 parseCfgOptions =
-  manyCompose parseFilterExtension
-    <* (parseEndofOpts <|> pure ())
+  ( manyCompose
+      ( parseFilterExtension
+          <|> parseGlobMatch
+      )
+      <* (parseEndofOpts <|> pure ())
+  )
+    <*> pure defaultCfgOptions
 
 parseNextArg :: CliArgParser String
 parseNextArg = CliArgParser $ \case
@@ -154,11 +180,18 @@ parseRegexArg = CliArgParser $ \case
       Right r -> yesParse (r, ss)
   _ -> noParse
 
+parsePathMatch :: Bool -> CliArgParser (Either Regex F.FSPath)
+parsePathMatch isGlob =
+  if isGlob
+    then Right . F.pack <$> parseNextArg
+    else Left <$> parseRegexArg
+
 parseCfg :: CliArgParser Cfg
-parseCfg =
+parseCfg = do
+  cfgOptions <- parseCfgOptions
   Cfg
-    <$> (parseCfgOptions <*> pure defaultCfgOptions)
-    <*> optional parseRegexArg
+    cfgOptions
+    <$> optional (parsePathMatch (cfgGlobMatch cfgOptions))
     <*> (F.pack <$> (parseNextArg <|> pure ""))
 
 parseCliArgs :: [String] -> Either CliArgError Cfg

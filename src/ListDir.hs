@@ -12,7 +12,7 @@ import Stream
 import Text.Regex.TDFA
 
 listDir :: Cfg -> IO ()
-listDir (Cfg cfgOpts maybeRegex path) = do
+listDir (Cfg cfgOpts maybePathMatch path) = do
   pathIsDir <- F.useAsCString path isDir
   if pathIsDir
     then do
@@ -22,7 +22,7 @@ listDir (Cfg cfgOpts maybeRegex path) = do
           (Left ([], 0))
           $ parConcatIterate
             makeDirStream'
-            (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybeRegex)
+            (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybePathMatch)
             512
           $ makeDirStream path
       case acc of
@@ -31,10 +31,10 @@ listDir (Cfg cfgOpts maybeRegex path) = do
     else
       fail $ "path is not a directory: " ++ show path
 
-matchPath :: CfgOptions -> Maybe Regex -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
-matchPath cfgOpts maybeRegex (path, dirEntry, pathIsDir) =
+matchPath :: CfgOptions -> Maybe (Either Regex F.FSPath) -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
+matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
   case cfgFilterExtension cfgOpts of
-    Just (CfgFilterExtension ext) ->
+    Just ext ->
       if F.isSuffixOf ext dirEntry
         then go
         else Nothing
@@ -42,9 +42,13 @@ matchPath cfgOpts maybeRegex (path, dirEntry, pathIsDir) =
       go
   where
     go =
-      case maybeRegex of
-        Just regex ->
+      case maybePathMatch of
+        Just (Left regex) ->
           if regex `matchTest` F.toByteString dirEntry
+            then Just (path, pathIsDir)
+            else Nothing
+        Just (Right pathToMatch) ->
+          if dirEntry == pathToMatch
             then Just (path, pathIsDir)
             else Nothing
         Nothing ->
