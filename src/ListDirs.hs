@@ -10,16 +10,16 @@ import Data.List (sort)
 import DirStream
 import qualified FSPath as F
 import Stream
+import System.Exit
 import System.IO
 import Text.Regex.TDFA
 
 listDirs :: Cfg -> IO ()
 listDirs (Cfg cfgOpts maybePathMatch inputDirs) = do
-  -- TODO: if none of the search dirs is a dir, then we need the program to return 1.
-  -- I think the behavior of only returning 1 if none of the dirs succeeded rather than returning 1
-  -- if any of them failed is weird, but we are trying to match fd's behavior exactly, for better or
-  -- worse.
   searchDirs <- filterM inputDirFilterer inputDirs
+  when
+    (null searchDirs)
+    exitFailure
   acc <-
     foldStream
       accOrPrintDirEntries
