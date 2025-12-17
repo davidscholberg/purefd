@@ -5,6 +5,7 @@
 
 module Stream
   ( Stream (..),
+    Stream.concat,
     concatIterateIO,
     foldStream,
     foldStream_,
@@ -16,10 +17,11 @@ where
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Monad
 import Control.Exception
+import Control.Monad
 import Data.Bifunctor
 import Data.Function
+import Data.Maybe
 import OpaqueStore
 
 -- Data type representing a stream of data. The open function acquires the stream resource, the
@@ -159,12 +161,64 @@ foldStream_ f identity stream = do
 mapStream_ :: (a -> IO b) -> Stream a -> IO ()
 mapStream_ f = foldStream_ (const f) undefined
 
-closeStateStore :: OpaqueStore c (StreamFrame a) => c (StreamFrame a) -> IO ()
+closeStateStore :: (OpaqueStore c (StreamFrame a)) => c (StreamFrame a) -> IO ()
 closeStateStore stateStore = do
   case peek stateStore of
     Just (StreamFrame currentState _ currentClose) ->
       currentClose currentState `finally` closeStateStore (pop stateStore)
     Nothing -> pure ()
+
+data ConcatState a
+  = ConcatState
+      (Maybe (StreamFrame a))
+      [Stream a]
+
+-- Create a stream that is the concatenation of the streams in the input list.
+-- This generally will be much more performant than messing with the semigroup instance for streams.
+concat :: [Stream a] -> Stream a
+concat streams =
+  Stream
+    { open =
+        case streams of
+          (Stream firstOpen firstNext firstClose) : streams' -> do
+            firstState <- firstOpen
+            pure $ ConcatState (Just $ StreamFrame firstState firstNext firstClose) streams'
+          _ ->
+            pure $ ConcatState Nothing [],
+      next = fix $ \self (ConcatState maybeStreamFrame remainingStreams) -> do
+        case maybeStreamFrame of
+          Just (StreamFrame currentState currentNext currentClose) -> do
+            maybeResult <- currentNext currentState
+            case maybeResult of
+              Just (v, currentState') ->
+                pure $ Just (v, ConcatState (Just $ StreamFrame currentState' currentNext currentClose) remainingStreams)
+              Nothing -> do
+                case remainingStreams of
+                  (Stream nextOpen nextNext nextClose) : remainingStreams' -> do
+                    nextState <- nextOpen `onException` currentClose currentState
+                    maybeResult' <-
+                      -- Normally we wouldn't catch and handle exceptions from next calls (since
+                      -- they're supposed to do their own cleanup), but in this case we can't clean
+                      -- up the current stream until we verify that the recursive next call below
+                      -- does not return Nothing. As a result, we catch any exception and close the
+                      -- stream that was left dangling in the current recursive call frame.
+                      self (ConcatState (Just $ StreamFrame nextState nextNext nextClose) remainingStreams')
+                        `onException` currentClose currentState
+                    if isJust maybeResult'
+                      then currentClose currentState
+                      else nextClose nextState
+                    pure maybeResult'
+                  _ ->
+                    pure Nothing
+          Nothing ->
+            pure Nothing,
+      close = \(ConcatState maybeStreamFrame _) -> do
+        case maybeStreamFrame of
+          Just (StreamFrame currentState _ currentClose) ->
+            currentClose currentState
+          Nothing ->
+            pure ()
+    }
 
 -- Create stream that prepends new streams that are found by applying the supplied f to one of the
 -- stream values. Useful for recursive depth-first traversal of (for example) a directory tree.
@@ -232,7 +286,7 @@ parConcatStreamWorker newStreamF pipelineF streamQ resultQ activeTCount pendingT
           case peek q of
             Just v -> do
               writeTVar streamQ $ pop q
-              modifyTVar' activeTCount (+1)
+              modifyTVar' activeTCount (+ 1)
               pure $ Just v
             Nothing -> do
               tc <- readTVar activeTCount

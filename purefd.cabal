@@ -27,7 +27,7 @@ library
       Config
       DirStream
       FSPath
-      ListDir
+      ListDirs
       OpaqueStore
       Stream
   other-modules:

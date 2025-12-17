@@ -28,7 +28,7 @@ data Cfg
   = Cfg
       CfgOptions
       (Maybe (Either Regex F.FSPath))
-      F.FSPath
+      [F.FSPath]
 
 instance Show Cfg where
   show (Cfg opts maybeRegex path) =
@@ -186,13 +186,18 @@ parsePathMatch isGlob =
     then Right . F.pack <$> parseNextArg
     else Left <$> parseRegexArg
 
+parseSearchDirs :: CliArgParser [F.FSPath]
+parseSearchDirs = CliArgParser $ \case
+  ss@(_ : _) -> yesParse (fmap F.pack ss, [])
+  _ -> yesParse ([F.pack ""], [])
+
 parseCfg :: CliArgParser Cfg
 parseCfg = do
   cfgOptions <- parseCfgOptions
   Cfg
     cfgOptions
     <$> optional (parsePathMatch (cfgGlobMatch cfgOptions))
-    <*> (F.pack <$> (parseNextArg <|> pure ""))
+    <*> parseSearchDirs
 
 parseCliArgs :: [String] -> Either CliArgError Cfg
 parseCliArgs args =
@@ -200,4 +205,4 @@ parseCliArgs args =
     Left e -> Left e
     Right (Left _) -> Left $ CliArgError "internal error: no parse"
     Right (Right (cfg, [])) -> Right cfg
-    Right (Right (_, ss)) -> Left $ CliArgError $ "unexpected trailing arg(s): " ++ show ss
+    Right (Right (_, ss)) -> Left $ CliArgError $ "internal error: unexpected trailing arg(s): " ++ show ss

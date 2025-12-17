@@ -1,35 +1,46 @@
-module ListDir
-  ( listDir,
+module ListDirs
+  ( listDirs,
   )
 where
 
 import Config
+import Control.Monad
 import qualified Data.ByteString as BS
 import Data.List (sort)
 import DirStream
 import qualified FSPath as F
 import Stream
+import System.IO
 import Text.Regex.TDFA
 
-listDir :: Cfg -> IO ()
-listDir (Cfg cfgOpts maybePathMatch path) = do
+listDirs :: Cfg -> IO ()
+listDirs (Cfg cfgOpts maybePathMatch inputDirs) = do
+  -- TODO: if none of the search dirs is a dir, then we need the program to return 1.
+  -- I think the behavior of only returning 1 if none of the dirs succeeded rather than returning 1
+  -- if any of them failed is weird, but we are trying to match fd's behavior exactly, for better or
+  -- worse.
+  searchDirs <- filterM inputDirFilterer inputDirs
+  acc <-
+    foldStream
+      accOrPrintDirEntries
+      (Left ([], 0))
+      $ parConcatIterate
+        makeDirStream'
+        (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybePathMatch)
+        512
+      $ Stream.concat $ makeDirStream <$> searchDirs
+  case acc of
+    Left (paths, _) -> printDirEntries $ sort paths
+    Right () -> pure ()
+
+inputDirFilterer :: F.FSPath -> IO Bool
+inputDirFilterer path = do
   pathIsDir <- F.useAsCString path isDir
   if pathIsDir
-    then do
-      acc <-
-        foldStream
-          accOrPrintDirEntries
-          (Left ([], 0))
-          $ parConcatIterate
-            makeDirStream'
-            (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybePathMatch)
-            512
-          $ makeDirStream path
-      case acc of
-        Left (paths, _) -> printDirEntries $ sort paths
-        Right () -> pure ()
-    else
-      fail $ "path is not a directory: " ++ show path
+    then pure True
+    else do
+      hPutStrLn stderr $ "error: path is not a directory: " ++ show path
+      pure False
 
 matchPath :: CfgOptions -> Maybe (Either Regex F.FSPath) -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
 matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
