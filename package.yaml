@@ -1,7 +1,7 @@
 name:                purefd
 version:             0.1.0.0
 github:              "davidscholberg/purefd"
-license:             BSD-3-Clause
+license:             MIT
 author:              "David Scholberg"
 maintainer:          "recombinant.vector@gmail.com"
 copyright:           "2025 David Scholberg"
