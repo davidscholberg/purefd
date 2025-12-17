@@ -30,16 +30,6 @@ data Cfg
       (Maybe (Either Regex F.FSPath))
       [F.FSPath]
 
-instance Show Cfg where
-  show (Cfg opts maybeRegex path) =
-    "Cfg ("
-      ++ show opts
-      ++ ") "
-      ++ maybe "Nothing" (const "(Just regex)") maybeRegex
-      ++ " ("
-      ++ show path
-      ++ ")"
-
 newtype CliArgError = CliArgError String
   deriving (Show)
 
