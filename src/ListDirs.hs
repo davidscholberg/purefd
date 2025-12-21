@@ -9,10 +9,11 @@ import qualified Data.ByteString as BS
 import Data.List (sort)
 import DirStream
 import qualified FSPath as F
+import Glob
 import Stream
 import System.Exit
 import System.IO
-import Text.Regex.TDFA
+import Text.Regex.TDFA as Regex
 
 listDirs :: Cfg -> IO ()
 listDirs (Cfg cfgOpts maybePathMatch inputDirs) = do
@@ -42,7 +43,7 @@ inputDirFilterer path = do
       hPutStrLn stderr $ "error: path is not a directory: " ++ show path
       pure False
 
-matchPath :: CfgOptions -> Maybe (Either Regex F.FSPath) -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
+matchPath :: CfgOptions -> Maybe (Either Regex Glob) -> (F.FSPath, F.FSPath, Bool) -> Maybe (F.FSPath, Bool)
 matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
   case cfgFilterExtension cfgOpts of
     Just ext ->
@@ -55,11 +56,11 @@ matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
     go =
       case maybePathMatch of
         Just (Left regex) ->
-          if regex `matchTest` F.toByteString dirEntry
+          if regex `Regex.matchTest` F.toByteString dirEntry
             then Just (path, pathIsDir)
             else Nothing
-        Just (Right pathToMatch) ->
-          if dirEntry == pathToMatch
+        Just (Right glob) ->
+          if glob `Glob.matchTest` F.toByteString dirEntry
             then Just (path, pathIsDir)
             else Nothing
         Nothing ->
