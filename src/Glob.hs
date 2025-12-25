@@ -63,7 +63,7 @@ parseExactString = Parser $ \str ->
                 else go s' False (BSC.snoc bs c)
         _ ->
           if escaped
-            then ParseYes (ExactString (BSC.snoc bs '\\'), s)
+            then ParseYes (ExactString $ BSC.snoc bs '\\', s)
             else
               if BSC.null bs
                 then ParseNo
@@ -127,7 +127,7 @@ matchAnyString glob =
     go bs =
       matchTest glob bs
         || ( not (BSC.null bs)
-               && go (BSC.drop 1 bs)
+               && (go $! BSC.drop 1 bs)
            )
 
 matchTest :: Glob -> BSC.ByteString -> Bool
@@ -141,10 +141,8 @@ matchTest (Glob globemes) =
         Nothing -> False
     go (AnyString : gs) bs = matchAnyString (Glob gs) bs
     go (ExactString es : gs) bs =
-      not (BSC.null bs)
-        && let (prefix, bs') = BSC.breakSubstring es bs
-            in BSC.null prefix
-                 && go gs (BSC.drop (BSC.length es) bs')
+      BSC.isPrefixOf es bs
+        && (go gs $! BSC.drop (BSC.length es) bs)
     go (g : gs) bs =
       case BSC.uncons bs of
         Just (c, bs') ->
