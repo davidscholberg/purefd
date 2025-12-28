@@ -90,20 +90,20 @@ isDir path = do
 makeDirStream :: F.FSPath -> Stream (F.FSPath, F.FSPath, Bool)
 makeDirStream path =
   Stream
-    { open = F.useAsCString path openDir,
+    { open = F.withCString path openDir,
       next = \dirPtr -> do
         maybeDirent <- readDirent dirPtr `onException` closeDir dirPtr
         case maybeDirent of
           Just (direntCStr, entryType) -> do
-            -- We force dirent to WHNF in the event that this value gets passed to a different
-            -- thread where the pointer to direntCStr would no longer be valid.
-            !dirent <- F.packCString direntCStr `onException` closeDir dirPtr
+            -- We force dirent to WHNF since direntCStr may be modified on a subsequent call to
+            -- next.
+            !dirent <- F.unsafePackCString direntCStr `onException` closeDir dirPtr
             let !path' = F.appendPath path dirent
             case entryType of
               DirEntryDir -> pure $ Just ((path', dirent, True), dirPtr)
               DirEntryNotDir -> pure $ Just ((path', dirent, False), dirPtr)
               DirEntryUnknown -> do
-                pathIsDir <- F.useAsCString path' isDir `onException` closeDir dirPtr
+                pathIsDir <- F.withCString path' isDir `onException` closeDir dirPtr
                 pure $ Just ((path', dirent, pathIsDir), dirPtr)
           Nothing -> pure Nothing,
       close = closeDir

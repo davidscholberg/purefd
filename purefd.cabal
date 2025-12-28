@@ -46,6 +46,7 @@ library
     , queues
     , regex-tdfa
     , stm
+    , text
   default-language: Haskell2010
 
 executable purefd-exe

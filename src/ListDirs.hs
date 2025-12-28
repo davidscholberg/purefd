@@ -5,7 +5,8 @@ where
 
 import Config
 import Control.Monad
-import qualified Data.ByteString as BS
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.List (sort)
 import DirStream
 import qualified FSPath as F
@@ -27,7 +28,7 @@ listDirs (Cfg cfgOpts maybePathMatch inputDirs) = do
       (Left ([], 0))
       $ parConcatIterate
         makeDirStream'
-        (fmap (toNLTerminatedBS . appendPathSep) . matchPath cfgOpts maybePathMatch)
+        (fmap (toNLTerminatedT . appendPathSep) . matchPath cfgOpts maybePathMatch)
         512
       $ Stream.concat $ makeDirStream <$> searchDirs
   case acc of
@@ -36,7 +37,7 @@ listDirs (Cfg cfgOpts maybePathMatch inputDirs) = do
 
 inputDirFilterer :: F.FSPath -> IO Bool
 inputDirFilterer path = do
-  pathIsDir <- F.useAsCString path isDir
+  pathIsDir <- F.withCString path isDir
   if pathIsDir
     then pure True
     else do
@@ -56,11 +57,11 @@ matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
     go =
       case maybePathMatch of
         Just (Left regex) ->
-          if regex `Regex.matchTest` F.toByteString dirEntry
+          if regex `Regex.matchTest` F.toText dirEntry
             then Just (path, pathIsDir)
             else Nothing
         Just (Right glob) ->
-          if glob `Glob.matchTest` F.toByteString dirEntry
+          if glob `Glob.matchTest` F.toText dirEntry
             then Just (path, pathIsDir)
             else Nothing
         Nothing ->
@@ -69,13 +70,13 @@ matchPath cfgOpts maybePathMatch (path, dirEntry, pathIsDir) =
 appendPathSep :: (F.FSPath, Bool) -> F.FSPath
 appendPathSep (path, pathIsDir) =
   if pathIsDir
-    then F.appendPath path $ F.fromByteString BS.empty
+    then F.appendPath path $ F.fromText T.empty
     else path
 
-toNLTerminatedBS :: F.FSPath -> BS.ByteString
-toNLTerminatedBS = flip BS.snoc 10 . F.toByteString
+toNLTerminatedT :: F.FSPath -> T.Text
+toNLTerminatedT = flip T.snoc '\n' . F.toText
 
-accOrPrintDirEntries :: Either ([BS.ByteString], Integer) () -> ([BS.ByteString], Integer) -> IO (Either ([BS.ByteString], Integer) ())
+accOrPrintDirEntries :: Either ([T.Text], Integer) () -> ([T.Text], Integer) -> IO (Either ([T.Text], Integer) ())
 accOrPrintDirEntries outputMode (pathList, pathCount) =
   case outputMode of
     Left (accList, accCount) -> do
@@ -90,5 +91,5 @@ accOrPrintDirEntries outputMode (pathList, pathCount) =
       printDirEntries pathList
       pure $ Right ()
 
-printDirEntries :: [BS.ByteString] -> IO ()
-printDirEntries = BS.putStr . BS.concat
+printDirEntries :: [T.Text] -> IO ()
+printDirEntries = TIO.putStr . T.concat

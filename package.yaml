@@ -34,6 +34,7 @@ library:
   - queues
   - regex-tdfa
   - stm
+  - text
 
 executables:
   purefd-exe:

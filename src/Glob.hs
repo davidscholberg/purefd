@@ -10,7 +10,7 @@ where
 
 import Control.Applicative
 import Control.Exception
-import qualified Data.ByteString.Char8 as BSC
+import qualified Data.Text as T
 import Parser
 
 newtype GlobError = GlobError String
@@ -20,14 +20,14 @@ instance Exception GlobError
 
 type GlobParser a = Parser Char a
 
--- TODO: implementing char classes as a bytestring of all possible char matches is probably
+-- TODO: implementing char classes as a text array of all possible char matches is probably
 -- really inefficient if there's a lot of char ranges in a particular class.
 data Globeme
-  = ExactString BSC.ByteString
+  = ExactString T.Text
   | AnyChar
   | AnyString
-  | CharClass BSC.ByteString
-  | NotCharClass BSC.ByteString
+  | CharClass T.Text
+  | NotCharClass T.Text
   deriving (Show)
 
 newtype Glob = Glob [Globeme]
@@ -41,33 +41,33 @@ isSpecialChar c =
 
 parseExactString :: GlobParser Globeme
 parseExactString = Parser $ \str ->
-  go str False BSC.empty
+  go str False T.empty
   where
-    go s escaped bs =
+    go s escaped t =
       case s of
         c : s'
           | isSpecialChar c ->
               if escaped
-                then go s' False (BSC.snoc bs c)
+                then go s' False (T.snoc t c)
                 else
-                  if BSC.null bs
+                  if T.null t
                     then ParseNo
-                    else ParseYes (ExactString bs, s)
+                    else ParseYes (ExactString t, s)
           | c == '\\' ->
               if escaped
-                then go s' True (BSC.snoc bs '\\')
-                else go s' True bs
+                then go s' True (T.snoc t '\\')
+                else go s' True t
           | otherwise ->
               if escaped
-                then go s' False (BSC.snoc (BSC.snoc bs '\\') c)
-                else go s' False (BSC.snoc bs c)
+                then go s' False (T.snoc (T.snoc t '\\') c)
+                else go s' False (T.snoc t c)
         _ ->
           if escaped
-            then ParseYes (ExactString $ BSC.snoc bs '\\', s)
+            then ParseYes (ExactString $ T.snoc t '\\', s)
             else
-              if BSC.null bs
+              if T.null t
                 then ParseNo
-                else ParseYes (ExactString bs, s)
+                else ParseYes (ExactString t, s)
 
 parseAnyChar :: GlobParser Globeme
 parseAnyChar = AnyChar <$ parseMatching '?'
@@ -75,31 +75,31 @@ parseAnyChar = AnyChar <$ parseMatching '?'
 parseAnyString :: GlobParser Globeme
 parseAnyString = AnyString <$ parseMatching '*'
 
-appendCharRange :: Char -> Char -> BSC.ByteString -> BSC.ByteString
+appendCharRange :: Char -> Char -> T.Text -> T.Text
 appendCharRange c1 c2 =
   go c1
   where
-    go c bs =
+    go c t =
       if c > c2
-        then bs
-        else go (succ c) (BSC.snoc bs c)
+        then t
+        else go (succ c) (T.snoc t c)
 
 parseCharClass :: GlobParser Globeme
 parseCharClass = Parser $ \case
-  '[' : '!' : ']' : str -> go str NotCharClass $ BSC.singleton ']'
-  '[' : '!' : str -> go str NotCharClass BSC.empty
-  '[' : ']' : str -> go str CharClass $ BSC.singleton ']'
-  '[' : str -> go str CharClass BSC.empty
+  '[' : '!' : ']' : str -> go str NotCharClass $ T.singleton ']'
+  '[' : '!' : str -> go str NotCharClass T.empty
+  '[' : ']' : str -> go str CharClass $ T.singleton ']'
+  '[' : str -> go str CharClass T.empty
   _ -> ParseNo
   where
-    go s f bs =
+    go s f t =
       case s of
         c1 : '-' : c2 : s' ->
           if c1 <= c2
-            then go s' f $ appendCharRange c1 c2 bs
+            then go s' f $ appendCharRange c1 c2 t
             else ParseError $ "invalid range '" ++ show c1 ++ "' to '" ++ show c2 ++ "'"
-        ']' : s' -> ParseYes (f bs, s')
-        c : s' -> go s' f (BSC.snoc bs c)
+        ']' : s' -> ParseYes (f t, s')
+        c : s' -> go s' f (T.snoc t c)
         _ -> ParseError "char class not closed"
 
 parseGlob :: GlobParser Glob
@@ -120,37 +120,37 @@ compile globStr =
     ParseYes (g, []) -> Right g
     ParseYes (_, _) -> Left $ GlobError "invalid glob"
 
-matchAnyString :: Glob -> BSC.ByteString -> Bool
+matchAnyString :: Glob -> T.Text -> Bool
 matchAnyString glob =
   go
   where
-    go bs =
-      matchTest glob bs
-        || ( not (BSC.null bs)
-               && (go $! BSC.drop 1 bs)
+    go t =
+      matchTest glob t
+        || ( not (T.null t)
+               && (go $! T.drop 1 t)
            )
 
-matchTest :: Glob -> BSC.ByteString -> Bool
+matchTest :: Glob -> T.Text -> Bool
 matchTest (Glob globemes) =
   go globemes
   where
-    go [] bs = BSC.null bs
-    go (AnyChar : gs) bs =
-      case BSC.uncons bs of
-        Just (_, bs') -> go gs bs'
+    go [] t = T.null t
+    go (AnyChar : gs) t =
+      case T.uncons t of
+        Just (_, t') -> go gs t'
         Nothing -> False
-    go (AnyString : gs) bs = matchAnyString (Glob gs) bs
-    go (ExactString es : gs) bs =
-      BSC.isPrefixOf es bs
-        && (go gs $! BSC.drop (BSC.length es) bs)
-    go (g : gs) bs =
-      case BSC.uncons bs of
-        Just (c, bs') ->
+    go (AnyString : gs) t = matchAnyString (Glob gs) t
+    go (ExactString es : gs) t =
+      T.isPrefixOf es t
+        && (go gs $! T.drop (T.length es) t)
+    go (g : gs) t =
+      case T.uncons t of
+        Just (c, t') ->
           charClassPred c
-            && go gs bs'
+            && go gs t'
         Nothing -> False
       where
         charClassPred c =
           case g of
-            CharClass cs -> BSC.elem c cs
-            NotCharClass cs -> BSC.notElem c cs
+            CharClass cs -> T.elem c cs
+            NotCharClass cs -> not $ T.elem c cs

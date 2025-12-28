@@ -10,12 +10,12 @@ where
 import Control.Applicative
 import Control.Exception
 import Control.Monad
-import qualified Data.ByteString.Char8 as BSC
+import qualified Data.Text as T
 import qualified FSPath as F
 import Glob
 import Parser
 import Text.Regex.TDFA as Regex
-import Text.Regex.TDFA.ByteString as RegexBS
+import Text.Regex.TDFA.Text as RegexT
 
 newtype CliArgError = CliArgError String
   deriving (Show)
@@ -104,7 +104,7 @@ parseCfgOptions =
 parseRegexArg :: CliArgParser Regex
 parseRegexArg = Parser $ \case
   argStr : ss ->
-    case RegexBS.compile defaultCompOpt defaultExecOpt $ BSC.pack argStr of
+    case RegexT.compile defaultCompOpt defaultExecOpt $ T.pack argStr of
       Left e -> ParseError e
       Right r -> ParseYes (r, ss)
   _ -> ParseNo
