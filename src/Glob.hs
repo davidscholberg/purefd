@@ -126,9 +126,20 @@ matchAnyString glob =
   where
     go t =
       matchTest glob t
-        || ( not (T.null t)
-               && (go $! T.drop 1 t)
-           )
+        || case T.uncons t of
+          Just (_, t') -> go $! t'
+          Nothing -> False
+
+-- This seems to offer way better perf than Data.Text.isPrefixOf.
+isPrefixOf :: T.Text -> T.Text -> Bool
+isPrefixOf t1 t2 = T.length t1 <= T.length t2 && t1 == T.take (T.length t1) t2
+
+-- This seems to offer way better perf than Data.Text.stripPrefix.
+stripPrefix :: T.Text -> T.Text -> Maybe T.Text
+stripPrefix t1 t2 =
+  if isPrefixOf t1 t2
+    then Just $ T.drop (T.length t1) t2
+    else Nothing
 
 matchTest :: Glob -> T.Text -> Bool
 matchTest (Glob globemes) =
@@ -141,8 +152,10 @@ matchTest (Glob globemes) =
         Nothing -> False
     go (AnyString : gs) t = matchAnyString (Glob gs) t
     go (ExactString es : gs) t =
-      T.isPrefixOf es t
-        && (go gs $! T.drop (T.length es) t)
+      (not $ T.null t)
+        && case stripPrefix es t of
+          Just t' -> go gs $! t'
+          Nothing -> False
     go (g : gs) t =
       case T.uncons t of
         Just (c, t') ->
