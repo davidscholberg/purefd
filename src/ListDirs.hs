@@ -6,7 +6,7 @@ where
 import Config
 import Control.Monad
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import qualified Data.Text.IO.Utf8 as TIOU
 import Data.List (sort)
 import DirStream
 import qualified FSPath as F
@@ -74,7 +74,7 @@ appendPathSep (path, pathIsDir) =
     else path
 
 toNLTerminatedT :: F.FSPath -> T.Text
-toNLTerminatedT = flip T.snoc '\n' . F.toText
+toNLTerminatedT p = T.concat [F.toText p, T.singleton '\n']
 
 accOrPrintDirEntries :: Either ([T.Text], Integer) () -> ([T.Text], Integer) -> IO (Either ([T.Text], Integer) ())
 accOrPrintDirEntries outputMode (pathList, pathCount) =
@@ -92,4 +92,4 @@ accOrPrintDirEntries outputMode (pathList, pathCount) =
       pure $ Right ()
 
 printDirEntries :: [T.Text] -> IO ()
-printDirEntries = TIO.putStr . T.concat
+printDirEntries = TIOU.putStr . T.concat
