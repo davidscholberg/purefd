@@ -28,13 +28,13 @@ data {-# CTYPE "DIR" #-} CDir
 
 data DirEntryType = DirEntryDir | DirEntryNotDir | DirEntryUnknown
 
-foreign import capi unsafe "dirent.h opendir" cOpendir :: CString -> IO (Ptr CDir)
+foreign import ccall unsafe "dirent.h opendir" cOpendir :: CString -> IO (Ptr CDir)
 
-foreign import capi unsafe "dirent.h closedir" cClosedir :: Ptr CDir -> IO CInt
+foreign import ccall unsafe "dirent.h closedir" cClosedir :: Ptr CDir -> IO CInt
 
-foreign import capi unsafe "posix_helper.h purefd_get_dir_entry" cPurefdGetDirEntry :: Ptr CDir -> Ptr CInt -> IO CString
+foreign import ccall unsafe "posix_helper.h purefd_get_dir_entry" cPurefdGetDirEntry :: Ptr CDir -> Ptr CInt -> IO CString
 
-foreign import capi unsafe "posix_helper.h purefd_is_dir" cPurefdIsDir :: CString -> IO CInt
+foreign import ccall unsafe "posix_helper.h purefd_is_dir" cPurefdIsDir :: CString -> IO CInt
 
 openDir :: CString -> IO (Ptr CDir)
 openDir pathCStr = do

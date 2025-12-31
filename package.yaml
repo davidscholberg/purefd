@@ -28,6 +28,8 @@ ghc-options:
 library:
   source-dirs: src
   include-dirs: c
+  c-sources:
+  - c/posix_helper.c
   dependencies:
   - async
   - bytestring
